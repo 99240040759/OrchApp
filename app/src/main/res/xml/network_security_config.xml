@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Config for Orch AI.
+  Only allows HTTPS connections — enforces transport security for all network calls
+  (model download from HuggingFace, update checks from GitHub API, APK downloads).
+  clearTextTrafficPermitted=false is the Play Store recommended baseline.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

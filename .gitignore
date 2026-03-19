@@ -1,0 +1,32 @@
+# Android build artefacts
+*.apk
+*.aab
+*.ap_
+
+# Build outputs
+build/
+*/build/
+.gradle/
+.idea/
+*.iml
+local.properties
+
+# NDK / CMake
+*/src/main/jniLibs/
+CMakeFiles/
+CMakeCache.txt
+
+# macOS
+.DS_Store
+
+# Kotlin compiler output
+.kotlin/
+
+# Gradle wrapper (keep gradlew but not wrapper jars)
+gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Keystore — NEVER commit signing keys
+*.jks
+*.keystore
+keystore.jks

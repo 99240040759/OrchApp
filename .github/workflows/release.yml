@@ -1,0 +1,107 @@
+name: Release APK
+
+# ─────────────────────────────────────────────────────────────────
+#  Triggers:
+#    1. Push a tag like "v2.0", "v2.1" → builds release APK + publishes
+#       GitHub Release automatically (OTA checker picks this up).
+#    2. Manual trigger from GitHub Actions UI (workflow_dispatch).
+# ─────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g. v2.1)'
+        required: true
+
+permissions:
+  contents: write   # Needed to create GitHub releases + upload assets
+
+jobs:
+  build-and-release:
+    name: Build & Publish APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Set up JDK 17 ─────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # ── 3. Cache Gradle ───────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      # ── 4. Make gradlew executable ───────────────────────────────
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      # ── 5. Build release APK ─────────────────────────────────────
+      #  Uses debug signing for now. To use a real keystore:
+      #    a) Add KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+      #       as GitHub Actions Secrets.
+      #    b) Uncomment the signing steps below.
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      # ── (Optional) Real keystore signing — uncomment when ready ──
+      # - name: Decode keystore
+      #   run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
+      # - name: Sign APK
+      #   run: |
+      #     $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
+      #       --ks keystore.jks \
+      #       --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+      #       --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+      #       --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+      #       app/build/outputs/apk/release/app-release.apk
+
+      # ── 6. Rename APK to "orch-ai-<tag>.apk" ─────────────────────
+      - name: Rename APK
+        run: |
+          TAG="${{ github.ref_name }}"
+          [ -z "$TAG" ] && TAG="${{ github.event.inputs.tag }}"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/orch-ai-${TAG}.apk"
+          echo "APK_PATH=dist/orch-ai-${TAG}.apk" >> $GITHUB_ENV
+          echo "APK_NAME=orch-ai-${TAG}.apk" >> $GITHUB_ENV
+
+      # ── 7. Create GitHub Release & upload APK ────────────────────
+      #  The OTA checker in MainViewModel uses the GitHub Releases API:
+      #    https://api.github.com/repos/sameer786ss/OrchApp/releases/latest
+      #  It reads tag_name to compare version codes & assets[].browser_download_url
+      #  for the APK download URL. This step creates that release automatically.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          name: "Orch AI ${{ github.ref_name || github.event.inputs.tag }}"
+          body: |
+            ## What's new
+            - Automatic release build from CI
+
+            **Install**: Download `${{ env.APK_NAME }}` below and open it on your device.
+            Orch AI will detect this update automatically via the in-app OTA updater.
+          files: ${{ env.APK_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
