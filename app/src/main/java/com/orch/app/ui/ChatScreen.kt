@@ -37,6 +37,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.orch.app.R
 import com.orch.app.data.ChatConversation
 import com.orch.app.data.ChatMessage
@@ -65,6 +67,8 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Auto-scroll to bottom on new content if already at bottom or if it's a user message
     val isAtBottom = remember { derivedStateOf { 
@@ -80,8 +84,8 @@ fun ChatScreen(
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.thinkingText?.length) {
         if (messages.isNotEmpty()) {
             val lastMessage = messages.last()
-            if (isAtBottom.value || lastMessage.isUser) {
-                listState.scrollToItem(messages.size - 1)
+            if (isAtBottom.value || lastMessage.isUser || isGenerating) {
+                listState.animateScrollToItem(messages.size - 1)
             }
         }
     }
@@ -189,6 +193,8 @@ fun ChatScreen(
                     if (textState.isNotBlank() && !isGenerating) {
                         onSendMessage(textState.trim())
                         textState = ""
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
                     }
                 },
                 isGenerating = isGenerating
@@ -409,17 +415,33 @@ fun AiMessageWithReasoning(message: ChatMessage) {
     ) {
         // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
-            val seconds = (message.thinkingDurationMs / 1000f)
-            val durationText = if (message.isThinking) "" else " for ${String.format("%.1fs", seconds)}"
-            val headerText = if (message.isThinking) "Thinking…" else "Thought$durationText"
-
-            // Local state to track manual toggle. 
-            // We use the message ID as a key to reset state for new messages, 
-            // but keep it for the current one during streaming.
-            var internalExpanded by remember(message.id) { mutableStateOf(message.isThinking) }
             
-            // Auto-expand while thinking, but honor manual toggle once done.
-            // If it's currently thinking, we force it open.
+            // Local state to track manual toggle. Automatically closes when thinking ends.
+            var internalExpanded by remember(message.id) { mutableStateOf(message.isThinking) }
+            LaunchedEffect(message.isThinking) {
+                if (!message.isThinking && internalExpanded) {
+                    internalExpanded = false
+                }
+            }
+
+            // Live Timer
+            var liveSeconds by remember(message.id) { mutableStateOf(0L) }
+            LaunchedEffect(message.isThinking) {
+                if (message.isThinking) {
+                    var ms = 0L
+                    while (true) {
+                        kotlinx.coroutines.delay(100)
+                        ms += 100
+                        liveSeconds = ms
+                    }
+                }
+            }
+            
+            val displayMs = if (message.isThinking) liveSeconds else message.thinkingDurationMs
+            val seconds = (displayMs / 1000f)
+            val durationText = if (seconds > 0) " for ${String.format("%.1fs", seconds)}" else ""
+            val headerText = if (message.isThinking) "Thinking$durationText" else "Thought$durationText"
+
             val expanded = if (message.isThinking) true else internalExpanded
 
             Column(
@@ -453,20 +475,30 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 12.dp, top = 4.dp, bottom = 8.dp)
                             .border(1.dp, DarkSurfaceBorder, RoundedCornerShape(8.dp))
                             .background(DarkSurfaceLight.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .padding(12.dp)
+                            .animateContentSize()
                     ) {
+                        val scrollState = rememberScrollState()
+                        // Auto-scroll to bottom of thinking text while streaming
+                        LaunchedEffect(message.thinkingText.length) {
+                             scrollState.animateScrollTo(scrollState.maxValue)
+                        }
+                        
                         Text(
                             text = message.thinkingText,
                             color = TextSecondary.copy(alpha = 0.8f),
                             fontSize = 13.sp,
                             fontStyle = FontStyle.Italic,
-                            lineHeight = 18.sp
+                            lineHeight = 18.sp,
+                            modifier = Modifier
+                                .heightIn(max = 240.dp)
+                                .verticalScroll(scrollState)
+                                .padding(12.dp)
                         )
                     }
                 }
@@ -657,6 +689,7 @@ fun GlassInputBar(
                     unfocusedIndicatorColor = Color.Transparent
                 ),
                 maxLines = 6,
+                minLines = 2,
                 modifier = Modifier.weight(1f)
             )
 

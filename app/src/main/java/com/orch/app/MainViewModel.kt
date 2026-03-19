@@ -108,7 +108,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun checkAndInitEngine() {
         viewModelScope.launch(Dispatchers.IO) {
-            val modelFile = File(getApplication<Application>().filesDir, MODEL_FILENAME)
+            val context = getApplication<Application>()
+            val modelFile = File(context.getExternalFilesDir(null), MODEL_FILENAME)
             if (modelFile.exists() && modelFile.length() >= MODEL_EXPECTED_SIZE - 5_000_000L) {
                 // File size check with 5 MB tolerance for minor GGUF metadata differences
                 initEngine(modelFile.absolutePath)
@@ -126,27 +127,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 _appState.value = AppState.Downloading(0, 0L, MODEL_EXPECTED_SIZE)
-                val request = Request.Builder().url(MODEL_URL).build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("Server error: ${response.code}")
-                    val body = response.body ?: throw IOException("Empty response body")
-                    val totalBytes = body.contentLength().takeIf { it > 0 } ?: MODEL_EXPECTED_SIZE
-                    var bytesRead = 0L
-
-                    body.byteStream().use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            val buffer = ByteArray(32_768) // 32 KB for fast throughput
-                            var read: Int
-                            while (input.read(buffer).also { read = it } != -1) {
-                                output.write(buffer, 0, read)
-                                bytesRead += read
-                                val progress = (bytesRead * 100L / totalBytes).toInt()
-                                _appState.value = AppState.Downloading(progress, bytesRead, totalBytes)
-                            }
+                
+                val context = getApplication<Application>()
+                val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                
+                // If it's already downloading, attach to it instead of restarting.
+                var activeDownloadId = -1L
+                val query = android.app.DownloadManager.Query()
+                val cursor = downloadManager.query(query)
+                if (cursor != null) {
+                    while (cursor.moveToNext()) {
+                        val title = cursor.getString(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TITLE))
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                        if (title == "Orch AI Model" && status != android.app.DownloadManager.STATUS_SUCCESSFUL && status != android.app.DownloadManager.STATUS_FAILED) {
+                            activeDownloadId = cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_ID))
+                            break
                         }
                     }
+                    cursor.close()
                 }
-                initEngine(targetFile.absolutePath)
+
+                val downloadId = if (activeDownloadId != -1L) {
+                    activeDownloadId
+                } else {
+                    val request = android.app.DownloadManager.Request(android.net.Uri.parse(MODEL_URL))
+                        .setTitle("Orch AI Model")
+                        .setDescription("Background downloading reasoning model ($MODEL_FILENAME)")
+                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE)
+                        .setDestinationInExternalFilesDir(context, null, MODEL_FILENAME)
+                        .setAllowedOverMetered(true)
+                        .setAllowedOverRoaming(true)
+                    downloadManager.enqueue(request)
+                }
+
+                // Poll progress
+                var isDownloading = true
+                while (isDownloading) {
+                    kotlinx.coroutines.delay(1000)
+                    val progressCursor = downloadManager.query(android.app.DownloadManager.Query().setFilterById(downloadId))
+                    if (progressCursor != null && progressCursor.moveToFirst()) {
+                        val status = progressCursor.getInt(progressCursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                        val bytesDownloaded = progressCursor.getLong(progressCursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val totalBytes = progressCursor.getLong(progressCursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        
+                        if (status == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                            isDownloading = false
+                            _appState.value = AppState.Downloading(100, totalBytes, totalBytes)
+                            initEngine(targetFile.absolutePath)
+                        } else if (status == android.app.DownloadManager.STATUS_FAILED) {
+                            isDownloading = false
+                            val reason = progressCursor.getInt(progressCursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_REASON))
+                            _appState.value = AppState.Error("Download failed with reason code: $reason")
+                            if (targetFile.exists()) targetFile.delete()
+                        } else {
+                            val activeTotal = if (totalBytes > 0) totalBytes else MODEL_EXPECTED_SIZE
+                            val progress = if (activeTotal > 0) (bytesDownloaded * 100L / activeTotal).toInt() else 0
+                            _appState.value = AppState.Downloading(progress, bytesDownloaded, activeTotal)
+                        }
+                    } else {
+                        // User manually deleted or cancelled it
+                        isDownloading = false
+                        _appState.value = AppState.Error("Download cancelled or interrupted")
+                        if (targetFile.exists()) targetFile.delete()
+                    }
+                    progressCursor?.close()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Model download failed", e)
                 if (targetFile.exists()) targetFile.delete()

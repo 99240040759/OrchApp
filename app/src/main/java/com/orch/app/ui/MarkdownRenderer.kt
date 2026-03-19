@@ -68,8 +68,9 @@ object MarkdownParser {
                     flushPlain()
                     segments += MessageSegment.CodeBlock(lang, codeLines.toString().trimEnd('\n'))
                 } else {
-                    // Streaming — unclosed block: treat as plain
-                    plainBuffer.append("```$lang\n").append(codeLines)
+                    // LIVE Markdown rendering fix: even if unclosed, render as CodeBlock!
+                    flushPlain()
+                    segments += MessageSegment.CodeBlock(lang, codeLines.toString().trimEnd('\n'))
                 }
             } else {
                 // Process inline code within the line
