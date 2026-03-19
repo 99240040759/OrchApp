@@ -22,8 +22,8 @@ CMakeCache.txt
 # Kotlin compiler output
 .kotlin/
 
-# Gradle wrapper (keep gradlew but not wrapper jars)
-gradle/wrapper/gradle-wrapper.jar
+# Gradle wrapper (crucial for CI/CD)
+!gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 
 # Keystore — NEVER commit signing keys
