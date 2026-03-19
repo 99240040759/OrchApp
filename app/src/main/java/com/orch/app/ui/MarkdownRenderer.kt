@@ -95,7 +95,21 @@ object MarkdownParser {
         }
 
         flushPlain()
-        return segments.filter { it !is MessageSegment.Plain || (it as MessageSegment.Plain).text.isNotEmpty() }
+        
+        // Final pass: filter out segments that are just whitespace to avoid "gap inflation"
+        // but keep actual content. Also merge consecutive plain segments if any remain.
+        val finalSegments = mutableListOf<MessageSegment>()
+        for (seg in segments) {
+            if (seg is MessageSegment.Plain && seg.text.isBlank()) continue
+            
+            val last = finalSegments.lastOrNull()
+            if (seg is MessageSegment.Plain && last is MessageSegment.Plain) {
+                finalSegments[finalSegments.size - 1] = MessageSegment.Plain(last.text + seg.text)
+            } else {
+                finalSegments += seg
+            }
+        }
+        return finalSegments
     }
 
     /** Split a single line by inline-code backticks */

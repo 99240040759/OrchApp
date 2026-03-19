@@ -66,10 +66,23 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Auto-scroll to bottom on new content
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
+    // Auto-scroll to bottom on new content if already at bottom or if it's a user message
+    val isAtBottom = remember { derivedStateOf { 
+        val layoutInfo = listState.layoutInfo
+        val visibleItemsInfo = layoutInfo.visibleItemsInfo
+        if (layoutInfo.totalItemsCount == 0) true
+        else {
+            val lastVisibleItem = visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            lastVisibleItem.index >= layoutInfo.totalItemsCount - 2 // Allow a small buffer
+        }
+    } }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.thinkingText?.length) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            val lastMessage = messages.last()
+            if (isAtBottom.value || lastMessage.isUser) {
+                listState.scrollToItem(messages.size - 1)
+            }
         }
     }
 
@@ -400,8 +413,13 @@ fun AiMessageWithReasoning(message: ChatMessage) {
             val durationText = if (message.isThinking) "" else " for ${String.format("%.1fs", seconds)}"
             val headerText = if (message.isThinking) "Thinking…" else "Thought$durationText"
 
-            var internalExpanded by remember { mutableStateOf(false) }
-            // Auto-expand while thinking, auto-collapse (but toggleable) when done
+            // Local state to track manual toggle. 
+            // We use the message ID as a key to reset state for new messages, 
+            // but keep it for the current one during streaming.
+            var internalExpanded by remember(message.id) { mutableStateOf(message.isThinking) }
+            
+            // Auto-expand while thinking, but honor manual toggle once done.
+            // If it's currently thinking, we force it open.
             val expanded = if (message.isThinking) true else internalExpanded
 
             Column(
@@ -462,19 +480,13 @@ fun AiMessageWithReasoning(message: ChatMessage) {
             // Initial placeholder (nothing yet)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                segments.forEach { segment ->
+                segments.filter { 
+                    it !is MessageSegment.Plain || it.text.isNotBlank() 
+                }.forEach { segment ->
                     when (segment) {
-                        is MessageSegment.Plain -> {
-                            if (segment.text.isNotBlank()) {
-                                RenderedPlainText(segment.text)
-                            }
-                        }
-                        is MessageSegment.CodeBlock -> {
-                            CodeBlockView(segment.language, segment.code)
-                        }
-                        is MessageSegment.InlineCode -> {
-                            InlineCodeChip(segment.code)
-                        }
+                        is MessageSegment.Plain -> RenderedPlainText(segment.text)
+                        is MessageSegment.CodeBlock -> CodeBlockView(segment.language, segment.code)
+                        is MessageSegment.InlineCode -> InlineCodeChip(segment.code)
                     }
                 }
             }
