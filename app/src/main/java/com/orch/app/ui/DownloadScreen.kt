@@ -127,9 +127,9 @@ fun LoadingScreen(
                 )
 
                 // Progress bar (downloading)
-                if (isDownloading || isLoading) {
+                if (isDownloading) {
                     val downloadState = state as? AppState.Downloading
-                    val progress = downloadState?.progress ?: 100
+                    val progress = downloadState?.progress ?: 0
 
                     Spacer(Modifier.height(28.dp))
 
@@ -161,21 +161,21 @@ fun LoadingScreen(
 
                     Spacer(Modifier.height(10.dp))
 
-                    if (isDownloading) {
-                        Text(
-                            "$progress%",
-                            color = WarmOrange,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                    } else {
-                        // Loading: indeterminate
-                        LinearProgressIndicator(
-                            color = WarmOrange,
-                            trackColor = DarkSurfaceBorder,
-                            modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
-                        )
-                    }
+                    Text(
+                        "$progress%",
+                        color = WarmOrange,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                } else if (isLoading) {
+                    Spacer(Modifier.height(28.dp))
+                    
+                    // Loading: indeterminate
+                    LinearProgressIndicator(
+                        color = WarmOrange,
+                        trackColor = DarkSurfaceBorder,
+                        modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
+                    )
                 }
 
                 // Error retry button

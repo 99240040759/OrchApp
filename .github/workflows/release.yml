@@ -54,25 +54,16 @@ jobs:
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
 
-      # ── 5. Build release APK ─────────────────────────────────────
-      #  Uses debug signing for now. To use a real keystore:
-      #    a) Add KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
-      #       as GitHub Actions Secrets.
-      #    b) Uncomment the signing steps below.
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.keystore
+
       - name: Build Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease --stacktrace
 
-      # ── (Optional) Real keystore signing — uncomment when ready ──
-      # - name: Decode keystore
-      #   run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
-      # - name: Sign APK
-      #   run: |
-      #     $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
-      #       --ks keystore.jks \
-      #       --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
-      #       --ks-key-alias ${{ secrets.KEY_ALIAS }} \
-      #       --key-pass pass:${{ secrets.KEY_PASSWORD }} \
-      #       app/build/outputs/apk/release/app-release.apk
 
       # ── 6. Rename APK to "orch-ai-<tag>.apk" ─────────────────────
       - name: Rename APK
@@ -90,6 +81,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          repository: sameer786ss/OrchApp
           tag_name: ${{ github.ref_name || github.event.inputs.tag }}
           name: "Orch AI ${{ github.ref_name || github.event.inputs.tag }}"
           body: |
@@ -101,5 +93,4 @@ jobs:
           files: ${{ env.APK_PATH }}
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PAT }}

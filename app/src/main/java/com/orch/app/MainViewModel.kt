@@ -37,7 +37,7 @@ private const val MODEL_EXPECTED_SIZE = 1282439360L   // ~1.28 GB Q4_K_M
 // ── GitHub repo for OTA updates ────────────────────────────────────────────
 // Set these to your own GitHub username / repo name.
 // The app looks at: https://api.github.com/repos/OWNER/REPO/releases/latest
-private const val GITHUB_OWNER = "99240040759"  // GitHub username
+private const val GITHUB_OWNER = "sameer786ss"  // GitHub username
 private const val GITHUB_REPO  = "OrchApp"      // GitHub repo name
 
 // ── System prompt — Qwen3 thinking-mode ───────────────────────────────────

@@ -13,8 +13,8 @@ android {
         applicationId = "com.orch.app"
         minSdk = 33
         targetSdk = 35
-        versionCode = 3       // Increment this and push a matching tag (v0.3) for OTA updates
-        versionName = "3.0"
+        versionCode = 1       // Increment this and push a matching tag (v0.3) for OTA updates
+        versionName = "1.0"
 
         externalNativeBuild {
             cmake {
@@ -23,14 +23,21 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // TODO: replace with your real keystore before publishing:
-            // signingConfig = signingConfigs.getByName("release")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isDebuggable = true
