@@ -172,13 +172,8 @@ class UpdateChecker(
 
     // ── Helpers ────────────────────────────────────────────────────────────
     private fun parseVersionCode(tag: String): Int {
-        // Handles: "v2.0" → 20, "v2.1" → 21, "v2" → 2, "2.0" → 20
+        // Extracts the first number from tag (e.g., "v1.0" -> 1, "v2" -> 2)
         val clean = tag.trimStart('v', 'V')
-        return try {
-            val parts = clean.split(".")
-            val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
-            val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
-            major * 10 + minor
-        } catch (_: Exception) { 0 }
+        return clean.split(".").firstOrNull()?.toIntOrNull() ?: 0
     }
 }
