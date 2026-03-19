@@ -341,7 +341,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _messages.value = _messages.value.map {
                                 if (it.id == placeholderId) it.copy(
                                     text = contentBuffer.toString(),
-                                    thinkingText = thinkingBuffer.toString()
+                                    thinkingText = thinkingBuffer.toString(),
+                                    isThinking = false,
+                                    thinkingDurationMs = thinkingDuration
                                 ) else it
                             }
                         }
@@ -349,7 +351,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _messages.value = _messages.value.map {
                                 if (it.id == placeholderId) it.copy(
                                     text = contentBuffer.toString().trim(),
-                                    thinkingText = thinkingBuffer.toString().trim()
+                                    thinkingText = thinkingBuffer.toString().trim(),
+                                    isThinking = false,
+                                    thinkingDurationMs = thinkingDuration
                                 ) else it
                             }
                         }
@@ -358,7 +362,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TAG, "Generation error", e)
                 _messages.value = _messages.value.map {
-                    if (it.id == placeholderId) it.copy(text = "⚠️ Error: ${e.message}") else it
+                    if (it.id == placeholderId) it.copy(
+                        text = "⚠️ Error: ${e.message}",
+                        isThinking = false
+                    ) else it
                 }
             } finally {
                 _isGenerating.value = false

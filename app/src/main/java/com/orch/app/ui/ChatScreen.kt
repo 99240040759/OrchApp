@@ -116,7 +116,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(DarkBackground)
-                .navigationBarsPadding()
                 .imePadding()
         ) {
             // ── Top bar ────────────────────────────────────────────────────
@@ -403,8 +402,6 @@ fun UserMessageBubble(message: ChatMessage) {
  */
 @Composable
 fun AiMessageWithReasoning(message: ChatMessage) {
-    var thinkExpanded by remember { mutableStateOf(false) }
-
     val segments = remember(message.text) {
         if (message.text.isBlank()) emptyList()
         else MarkdownParser.parse(message.text)
@@ -421,7 +418,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
             // Local state to track manual toggle. Automatically closes when thinking ends.
             var internalExpanded by remember(message.id) { mutableStateOf(message.isThinking) }
             LaunchedEffect(message.isThinking) {
-                if (!message.isThinking && internalExpanded) {
+                if (!message.isThinking) {
                     internalExpanded = false
                 }
             }
@@ -750,6 +747,7 @@ fun HistorySidebar(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
             Row(
                 modifier = Modifier
