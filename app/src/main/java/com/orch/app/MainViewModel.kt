@@ -265,6 +265,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var contentBuffer  = StringBuilder()
         var tokenCount     = 0
         val startTime      = System.currentTimeMillis()
+        var thinkingStartTime = System.currentTimeMillis()
+        var thinkingDuration = 0L
+        var isThinkingState  = true
 
         generationJob = viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -275,11 +278,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             // Live-update thinking text so the UI can show streaming thought
                             _messages.value = _messages.value.map {
                                 if (it.id == placeholderId) it.copy(
-                                    thinkingText = thinkingBuffer.toString()
+                                    thinkingText = thinkingBuffer.toString(),
+                                    isThinking = true
                                 ) else it
                             }
                         }
                         is ReasoningToken.Content -> {
+                            if (isThinkingState) {
+                                thinkingDuration = System.currentTimeMillis() - thinkingStartTime
+                                isThinkingState = false
+                            }
                             contentBuffer.append(token.text)
                             tokenCount++
                             val elapsed = (System.currentTimeMillis() - startTime) / 1000f

@@ -164,9 +164,6 @@ fun ChatScreen(
                         items(messages, key = { it.id }) { message ->
                             MessageItem(message)
                         }
-                        if (isGenerating) {
-                            item(key = "typing") { TypingIndicator() }
-                        }
                     }
                 }
             }
@@ -397,46 +394,61 @@ fun AiMessageWithReasoning(message: ChatMessage) {
             .fillMaxWidth()
             .padding(start = 4.dp, end = 24.dp)
     ) {
-        // ── Collapsible thinking chain ─────────────────────────────────
+        // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
-            Surface(
-                onClick = { thinkExpanded = !thinkExpanded },
-                color = Color(0xFF1E1A12),
-                shape = RoundedCornerShape(12.dp),
+            val seconds = (message.thinkingDurationMs / 1000f)
+            val durationText = if (message.isThinking) "" else " for ${String.format("%.1fs", seconds)}"
+            val headerText = if (message.isThinking) "Thinking…" else "Thought$durationText"
+
+            var internalExpanded by remember { mutableStateOf(false) }
+            // Auto-expand while thinking, auto-collapse (but toggleable) when done
+            val expanded = if (message.isThinking) true else internalExpanded
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = 8.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (thinkExpanded) Icons.Default.KeyboardArrowUp
-                            else Icons.Default.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = WarmOrange,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Thinking",
-                            color = WarmOrange,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        // Pulse dot if still streaming thought
-                        if (message.text.isEmpty() && message.thinkingText.isNotEmpty()) {
-                            ThinkingPulseDot()
-                        }
-                    }
-                    AnimatedVisibility(visible = thinkExpanded) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { if (!message.isThinking) internalExpanded = !internalExpanded }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = TextSecondary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = headerText,
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, top = 4.dp, bottom = 8.dp)
+                            .border(1.dp, DarkSurfaceBorder, RoundedCornerShape(8.dp))
+                            .background(DarkSurfaceLight.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
                         Text(
                             text = message.thinkingText,
-                            color = TextSecondary,
+                            color = TextSecondary.copy(alpha = 0.8f),
                             fontSize = 13.sp,
                             fontStyle = FontStyle.Italic,
-                            lineHeight = 19.sp,
-                            modifier = Modifier.padding(top = 8.dp)
+                            lineHeight = 18.sp
                         )
                     }
                 }
@@ -445,12 +457,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
 
         // ── Answer body ────────────────────────────────────────────────
         if (message.text.isEmpty() && message.thinkingText.isNotEmpty()) {
-            Text(
-                text = "Generating answer…",
-                color = TextSecondary.copy(alpha = 0.6f),
-                fontSize = 14.sp,
-                fontStyle = FontStyle.Italic
-            )
+            // No placeholder text as per request
         } else if (message.text.isEmpty()) {
             // Initial placeholder (nothing yet)
         } else {
@@ -475,31 +482,67 @@ fun AiMessageWithReasoning(message: ChatMessage) {
     }
 }
 
-/** Renders plain text that may contain inline code fragments */
+/** Renders plain text with support for bold (**), italic (*), and mixed inline segments */
 @Composable
 private fun RenderedPlainText(text: String) {
     val inlineSegments = remember(text) { MarkdownParser.parse(text) }
-    if (inlineSegments.size == 1 && inlineSegments[0] is MessageSegment.Plain) {
-        // Simple path — avoid building annotated string for pure text
-        Text(
-            text = text.trimEnd('\n'),
-            color = OnDarkSurface,
-            fontSize = 15.sp,
-            lineHeight = 24.sp
-        )
-    } else {
-        // Could contain inline code — render mixed
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            inlineSegments.forEach { seg ->
-                when (seg) {
-                    is MessageSegment.Plain -> if (seg.text.isNotBlank()) Text(
-                        text = seg.text,
-                        color = OnDarkSurface,
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp
-                    )
-                    is MessageSegment.InlineCode -> InlineCodeChip(seg.code)
-                    is MessageSegment.CodeBlock -> CodeBlockView(seg.language, seg.code)
+    
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        inlineSegments.forEach { seg ->
+            when (seg) {
+                is MessageSegment.Plain -> {
+                    if (seg.text.isNotBlank()) {
+                        Text(
+                            text = parseMarkdownToAnnotatedString(seg.text.trimEnd('\n')),
+                            color = OnDarkSurface,
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp
+                        )
+                    }
+                }
+                is MessageSegment.InlineCode -> InlineCodeChip(seg.code)
+                is MessageSegment.CodeBlock -> CodeBlockView(seg.language, seg.code)
+            }
+        }
+    }
+}
+
+/** Simple parser to convert **bold** and *italic* into AnnotatedString */
+@Composable
+private fun parseMarkdownToAnnotatedString(text: String): androidx.compose.ui.text.AnnotatedString {
+    return buildAnnotatedString {
+        var i = 0
+        while (i < text.length) {
+            when {
+                // Bold: **text**
+                text.startsWith("**", i) -> {
+                    val end = text.indexOf("**", i + 2)
+                    if (end != -1) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(text.substring(i + 2, end))
+                        }
+                        i = end + 2
+                    } else {
+                        append("**")
+                        i += 2
+                    }
+                }
+                // Italic: *text* (avoiding match if inside bold or if it's just a bullet)
+                text.startsWith("*", i) && (i == 0 || text[i-1] != '*') -> {
+                    val end = text.indexOf("*", i + 1)
+                    if (end != -1 && end > i + 1 && text[end-1] != ' ') {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(text.substring(i + 1, end))
+                        }
+                        i = end + 1
+                    } else {
+                        append("*")
+                        i += 1
+                    }
+                }
+                else -> {
+                    append(text[i])
+                    i++
                 }
             }
         }

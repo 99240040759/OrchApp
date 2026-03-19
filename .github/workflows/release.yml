@@ -77,12 +77,10 @@ jobs:
       # ── 6. Rename APK to "orch-ai-<tag>.apk" ─────────────────────
       - name: Rename APK
         run: |
-          TAG="${{ github.ref_name }}"
-          [ -z "$TAG" ] && TAG="${{ github.event.inputs.tag }}"
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/orch-ai-${TAG}.apk"
-          echo "APK_PATH=dist/orch-ai-${TAG}.apk" >> $GITHUB_ENV
-          echo "APK_NAME=orch-ai-${TAG}.apk" >> $GITHUB_ENV
+          cp app/build/outputs/apk/release/app-release.apk "dist/OrchAI.apk"
+          echo "APK_PATH=dist/OrchAI.apk" >> $GITHUB_ENV
+          echo "APK_NAME=OrchAI.apk" >> $GITHUB_ENV
 
       # ── 7. Create GitHub Release & upload APK ────────────────────
       #  The OTA checker in MainViewModel uses the GitHub Releases API:
