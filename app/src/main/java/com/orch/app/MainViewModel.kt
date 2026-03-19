@@ -30,9 +30,9 @@ private const val TAG = "MainViewModel"
 // Qwen3-1.7B Instruct Q4_K_M (~1.28 GB) — best balance for mobile (4GB+ RAM phones)
 // Thinking mode enabled: the model uses <think>...</think> chains before answering.
 private const val MODEL_URL =
-    "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
+    "https://huggingface.co/lm-kit/qwen-3-1.7b-instruct-gguf/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
 private const val MODEL_FILENAME = "orch_model_qwen3_1.7b_q4km.gguf"
-private const val MODEL_EXPECTED_SIZE = 1_280_000_000L   // ~1.28 GB
+private const val MODEL_EXPECTED_SIZE = 1282439360L   // ~1.28 GB Q4_K_M
 
 // ── GitHub repo for OTA updates ────────────────────────────────────────────
 // Set these to your own GitHub username / repo name.
