@@ -413,7 +413,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 4.dp, end = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
@@ -454,7 +454,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clickable { if (!message.isThinking) internalExpanded = !internalExpanded }
-                        .padding(vertical = 4.dp)
+                        .padding(top = 4.dp, bottom = 0.dp)
                 ) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -479,7 +479,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 12.dp, top = 4.dp, bottom = 8.dp)
+                            .padding(top = 4.dp, bottom = 4.dp)
                             .border(1.dp, DarkSurfaceBorder, RoundedCornerShape(8.dp))
                             .background(DarkSurfaceLight.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                             .animateContentSize()
@@ -499,7 +499,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                             modifier = Modifier
                                 .heightIn(max = 140.dp)
                                 .verticalScroll(scrollState)
-                                .padding(12.dp)
+                                .padding(8.dp)
                         )
                     }
                 }
