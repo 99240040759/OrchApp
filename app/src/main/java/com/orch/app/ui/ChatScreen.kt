@@ -413,7 +413,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 4.dp, end = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
@@ -538,7 +538,7 @@ private fun RenderedPlainText(text: String) {
                 is MessageSegment.Plain -> {
                     if (seg.text.isNotBlank()) {
                         Text(
-                            text = parseMarkdownToAnnotatedString(seg.text.trimEnd('\n')),
+                            text = parseMarkdownToAnnotatedString(seg.text.trim('\n')),
                             color = OnDarkSurface,
                             fontSize = 15.sp,
                             lineHeight = 24.sp

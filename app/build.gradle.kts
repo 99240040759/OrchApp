@@ -13,8 +13,8 @@ android {
         applicationId = "com.orch.app"
         minSdk = 33
         targetSdk = 35
-        versionCode = 103       // Increment this and push a matching tag (v1.0) for OTA updates
-        versionName = "1.3"
+        versionCode = 104       // Increment this and push a matching tag (v1.0) for OTA updates
+        versionName = "1.4"
 
         externalNativeBuild {
             cmake {
