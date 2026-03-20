@@ -86,8 +86,10 @@ fun ChatScreen(
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.thinkingText?.length) {
         if (messages.isNotEmpty()) {
             val lastMessage = messages.last()
-            if (isAtBottom.value || lastMessage.isUser || isGenerating) {
-                listState.animateScrollToItem(messages.size - 1)
+            // Only auto-scroll if already at bottom or if it's a new user message
+            if (isAtBottom.value || lastMessage.isUser) {
+                // Use a large offset to ensure we scroll to the very bottom of long messages
+                listState.animateScrollToItem(messages.size - 1, scrollOffset = 10000)
             }
         }
     }
@@ -410,7 +412,8 @@ fun AiMessageWithReasoning(message: ChatMessage) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 24.dp)
+            .padding(start = 4.dp, end = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
@@ -446,7 +449,6 @@ fun AiMessageWithReasoning(message: ChatMessage) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -495,7 +497,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                             fontStyle = FontStyle.Italic,
                             lineHeight = 18.sp,
                             modifier = Modifier
-                                .heightIn(max = 240.dp)
+                                .heightIn(max = 140.dp)
                                 .verticalScroll(scrollState)
                                 .padding(12.dp)
                         )
