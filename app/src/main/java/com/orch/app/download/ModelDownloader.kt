@@ -38,7 +38,7 @@ class ModelDownloader(private val context: Context) {
             .setTitle("Downloading Orch Model")
             .setDescription("Downloading the reasoning model for offline use")
             .setDestinationInExternalFilesDir(context, null, fileName)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
 
