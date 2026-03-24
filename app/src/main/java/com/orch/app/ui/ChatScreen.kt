@@ -1,11 +1,17 @@
 package com.orch.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.view.HapticFeedbackConstants
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,8 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -26,12 +30,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -39,8 +49,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.orch.app.R
 import com.orch.app.data.ChatConversation
 import com.orch.app.data.ChatMessage
@@ -63,7 +71,10 @@ fun ChatScreen(
     onDeleteAllHistory: () -> Unit,
     updateState: UpdateUiState = UpdateUiState.Idle,
     onStartUpdate: () -> Unit = {},
-    onInstallUpdate: () -> Unit = {}
+    onInstallUpdate: () -> Unit = {},
+    onStopGeneration: () -> Unit = {},
+    onRegenerateResponse: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     var textState by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -71,24 +82,24 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     // Auto-scroll to bottom on new content if already at bottom or if it's a user message
-    val isAtBottom = remember { derivedStateOf { 
+    val isAtBottom = remember { derivedStateOf {
         val layoutInfo = listState.layoutInfo
         val visibleItemsInfo = layoutInfo.visibleItemsInfo
         if (layoutInfo.totalItemsCount == 0) true
         else {
             val lastVisibleItem = visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
-            lastVisibleItem.index >= layoutInfo.totalItemsCount - 2 // Allow a small buffer
+            lastVisibleItem.index >= layoutInfo.totalItemsCount - 2
         }
     } }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.thinkingText?.length) {
         if (messages.isNotEmpty()) {
             val lastMessage = messages.last()
-            // Only auto-scroll if already at bottom or if it's a new user message
             if (isAtBottom.value || lastMessage.isUser) {
-                // Use a large offset to ensure we scroll to the very bottom of long messages
                 listState.animateScrollToItem(messages.size - 1, scrollOffset = 10000)
             }
         }
@@ -101,15 +112,21 @@ fun ChatScreen(
                 conversations = conversations,
                 currentConversationId = currentConversationId,
                 onNewChat = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onNewChat()
                     scope.launch { drawerState.close() }
                 },
                 onLoadChat = { id ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLoadChat(id)
                     scope.launch { drawerState.close() }
                 },
                 onDeleteChat = onDeleteChat,
-                onDeleteAllHistory = onDeleteAllHistory
+                onDeleteAllHistory = onDeleteAllHistory,
+                onOpenSettings = {
+                    onOpenSettings()
+                    scope.launch { drawerState.close() }
+                }
             )
         },
         gesturesEnabled = true
@@ -132,7 +149,13 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch { drawerState.open() }
+                        },
+                        modifier = Modifier.semantics { contentDescription = "Open menu" }
+                    ) {
                         Icon(Icons.Default.Menu, contentDescription = "Menu", tint = WarmOrange)
                     }
 
@@ -173,8 +196,17 @@ fun ChatScreen(
             // ── Message list ───────────────────────────────────────────────
             Box(modifier = Modifier.weight(1f)) {
                 if (messages.isEmpty()) {
-                    EmptyState()
+                    EmptyState(
+                        onSuggestionClick = { suggestion ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSendMessage(suggestion)
+                        }
+                    )
                 } else {
+                    val canRegenerate = messages.isNotEmpty() &&
+                        !messages.last().isUser &&
+                        !isGenerating
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -182,7 +214,18 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
                         items(messages, key = { it.id }) { message ->
-                            MessageItem(message)
+                            MessageItem(
+                                message = message,
+                                onCopyMessage = { text ->
+                                    copyToClipboard(context, text)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                showRegenerate = canRegenerate && message == messages.last() && !message.isUser,
+                                onRegenerate = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onRegenerateResponse()
+                                }
+                            )
                         }
                     }
                 }
@@ -194,15 +237,28 @@ fun ChatScreen(
                 onTextChange = { textState = it },
                 onSend = {
                     if (textState.isNotBlank() && !isGenerating) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSendMessage(textState.trim())
                         textState = ""
                         keyboardController?.hide()
                         focusManager.clearFocus()
                     }
                 },
+                onStop = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onStopGeneration()
+                },
                 isGenerating = isGenerating
             )
         }
+    }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -213,6 +269,8 @@ fun UpdateHeaderChip(
     onStartUpdate: () -> Unit,
     onInstallUpdate: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+
     AnimatedVisibility(
         visible = updateState !is UpdateUiState.Idle && updateState !is UpdateUiState.UpToDate,
         enter = fadeIn() + expandHorizontally(),
@@ -235,10 +293,15 @@ fun UpdateHeaderChip(
             }
             is UpdateUiState.Available -> {
                 Surface(
-                    onClick = onStartUpdate,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onStartUpdate()
+                    },
                     color = WarmOrange.copy(alpha = 0.15f),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.padding(end = 4.dp)
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .semantics { contentDescription = "Update available: version ${updateState.versionName}" }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -246,7 +309,7 @@ fun UpdateHeaderChip(
                     ) {
                         Icon(
                             Icons.Default.SystemUpdate,
-                            contentDescription = "Update available",
+                            contentDescription = null,
                             tint = WarmOrange,
                             modifier = Modifier.size(14.dp)
                         )
@@ -283,17 +346,21 @@ fun UpdateHeaderChip(
             }
             is UpdateUiState.ReadyToInstall -> {
                 Button(
-                    onClick = onInstallUpdate,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onInstallUpdate()
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier
                         .padding(end = 4.dp)
                         .height(32.dp)
+                        .semantics { contentDescription = "Install update" }
                 ) {
                     Icon(
                         Icons.Default.GetApp,
-                        contentDescription = "Install",
+                        contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(14.dp)
                     )
@@ -313,7 +380,7 @@ fun UpdateHeaderChip(
 
 // ── Empty state ────────────────────────────────────────────────────────────
 @Composable
-private fun EmptyState() {
+private fun EmptyState(onSuggestionClick: (String) -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -321,7 +388,7 @@ private fun EmptyState() {
         ) {
             Image(
                 painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                contentDescription = "Orch Logo",
+                contentDescription = "Orch AI Logo",
                 modifier = Modifier.size(100.dp)
             )
             Spacer(Modifier.height(16.dp))
@@ -339,7 +406,8 @@ private fun EmptyState() {
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(32.dp))
-            // Suggestion chips
+
+            // Suggestion chips - now working!
             val suggestions = listOf(
                 "Write a Python script",
                 "Explain quantum computing",
@@ -353,7 +421,7 @@ private fun EmptyState() {
                 ) {
                     row.forEach { hint ->
                         SuggestionChip(
-                            onClick = { /* handled via onSendMessage in parent */ },
+                            onClick = { onSuggestionClick(hint) },
                             label = { Text(hint, fontSize = 12.sp, color = TextSecondary) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = DarkSurface
@@ -361,7 +429,8 @@ private fun EmptyState() {
                             border = SuggestionChipDefaults.suggestionChipBorder(
                                 enabled = true,
                                 borderColor = DarkSurfaceBorder
-                            )
+                            ),
+                            modifier = Modifier.semantics { contentDescription = "Suggestion: $hint" }
                         )
                     }
                 }
@@ -372,16 +441,35 @@ private fun EmptyState() {
 
 // ── Message item ───────────────────────────────────────────────────────────
 @Composable
-fun MessageItem(message: ChatMessage) {
-    if (message.isUser) UserMessageBubble(message) else AiMessageWithReasoning(message)
+fun MessageItem(
+    message: ChatMessage,
+    onCopyMessage: (String) -> Unit = {},
+    showRegenerate: Boolean = false,
+    onRegenerate: () -> Unit = {}
+) {
+    if (message.isUser) {
+        UserMessageBubble(message, onCopyMessage)
+    } else {
+        AiMessageWithReasoning(message, onCopyMessage, showRegenerate, onRegenerate)
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun UserMessageBubble(message: ChatMessage) {
+fun UserMessageBubble(
+    message: ChatMessage,
+    onCopyMessage: (String) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
                 .widthIn(max = 300.dp)
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { showMenu = true }
+                )
                 .background(
                     brush = Brush.linearGradient(listOf(WarmOrange, WarmOrange.copy(alpha = 0.88f))),
                     shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
@@ -395,6 +483,20 @@ fun UserMessageBubble(message: ChatMessage) {
                 lineHeight = 22.sp,
                 fontWeight = FontWeight.Medium
             )
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Copy") },
+                    onClick = {
+                        onCopyMessage(message.text)
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) }
+                )
+            }
         }
     }
 }
@@ -402,8 +504,16 @@ fun UserMessageBubble(message: ChatMessage) {
 /**
  * AI message: collapsible thinking chain + rendered markdown body (code blocks, inline code).
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun AiMessageWithReasoning(message: ChatMessage) {
+fun AiMessageWithReasoning(
+    message: ChatMessage,
+    onCopyMessage: (String) -> Unit,
+    showRegenerate: Boolean,
+    onRegenerate: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
     val segments = remember(message.text) {
         if (message.text.isBlank()) emptyList()
         else MarkdownParser.parse(message.text)
@@ -412,13 +522,15 @@ fun AiMessageWithReasoning(message: ChatMessage) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 24.dp),
+            .padding(start = 4.dp, end = 24.dp)
+            .combinedClickable(
+                onClick = { },
+                onLongClick = { showMenu = true }
+            ),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // ── Integrated thinking dropdown ──────────────────────────────
         if (message.thinkingText.isNotBlank()) {
-            
-            // Local state to track manual toggle. Automatically closes when thinking ends.
             var internalExpanded by remember(message.id) { mutableStateOf(message.isThinking) }
             LaunchedEffect(message.isThinking) {
                 if (!message.isThinking) {
@@ -438,7 +550,7 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                     }
                 }
             }
-            
+
             val displayMs = if (message.isThinking) liveSeconds else message.thinkingDurationMs
             val seconds = (displayMs / 1000f)
             val durationText = if (seconds > 0) " for ${String.format("%.1fs", seconds)}" else ""
@@ -446,15 +558,13 @@ fun AiMessageWithReasoning(message: ChatMessage) {
 
             val expanded = if (message.isThinking) true else internalExpanded
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clickable { if (!message.isThinking) internalExpanded = !internalExpanded }
                         .padding(top = 4.dp, bottom = 0.dp)
+                        .semantics { contentDescription = if (expanded) "Collapse thinking" else "Expand thinking" }
                 ) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -485,11 +595,10 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                             .animateContentSize()
                     ) {
                         val scrollState = rememberScrollState()
-                        // Auto-scroll to bottom of thinking text while streaming
                         LaunchedEffect(message.thinkingText.length) {
-                             scrollState.animateScrollTo(scrollState.maxValue)
+                            scrollState.animateScrollTo(scrollState.maxValue)
                         }
-                        
+
                         Text(
                             text = message.thinkingText,
                             color = TextSecondary.copy(alpha = 0.8f),
@@ -507,14 +616,10 @@ fun AiMessageWithReasoning(message: ChatMessage) {
         }
 
         // ── Answer body ────────────────────────────────────────────────
-        if (message.text.isEmpty() && message.thinkingText.isNotEmpty()) {
-            // No placeholder text as per request
-        } else if (message.text.isEmpty()) {
-            // Initial placeholder (nothing yet)
-        } else {
+        if (message.text.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                segments.filter { 
-                    it !is MessageSegment.Plain || it.text.isNotBlank() 
+                segments.filter {
+                    it !is MessageSegment.Plain || it.text.isNotBlank()
                 }.forEach { segment ->
                     when (segment) {
                         is MessageSegment.Plain -> RenderedPlainText(segment.text)
@@ -524,31 +629,81 @@ fun AiMessageWithReasoning(message: ChatMessage) {
                 }
             }
         }
+
+        // ── Action buttons (copy, regenerate) ─────────────────────────
+        Row(
+            modifier = Modifier.padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (message.text.isNotBlank()) {
+                IconButton(
+                    onClick = { onCopyMessage(message.text) },
+                    modifier = Modifier
+                        .size(28.dp)
+                        .semantics { contentDescription = "Copy message" }
+                ) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = null,
+                        tint = TextSecondary.copy(alpha = 0.5f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
+            if (showRegenerate) {
+                IconButton(
+                    onClick = onRegenerate,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .semantics { contentDescription = "Regenerate response" }
+                ) {
+                    Icon(
+                        Icons.Outlined.Refresh,
+                        contentDescription = null,
+                        tint = TextSecondary.copy(alpha = 0.5f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Copy") },
+                onClick = {
+                    onCopyMessage(message.text)
+                    showMenu = false
+                },
+                leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) }
+            )
+            if (showRegenerate) {
+                DropdownMenuItem(
+                    text = { Text("Regenerate") },
+                    onClick = {
+                        onRegenerate()
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) }
+                )
+            }
+        }
     }
 }
 
-/** Renders plain text with support for bold (**), italic (*), and mixed inline segments */
+/** Renders plain text with support for bold (**), italic (*) */
 @Composable
 private fun RenderedPlainText(text: String) {
-    val inlineSegments = remember(text) { MarkdownParser.parse(text) }
-    
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        inlineSegments.forEach { seg ->
-            when (seg) {
-                is MessageSegment.Plain -> {
-                    if (seg.text.isNotBlank()) {
-                        Text(
-                            text = parseMarkdownToAnnotatedString(seg.text.trim('\n')),
-                            color = OnDarkSurface,
-                            fontSize = 15.sp,
-                            lineHeight = 24.sp
-                        )
-                    }
-                }
-                is MessageSegment.InlineCode -> InlineCodeChip(seg.code)
-                is MessageSegment.CodeBlock -> CodeBlockView(seg.language, seg.code)
-            }
-        }
+    if (text.isNotBlank()) {
+        Text(
+            text = parseMarkdownToAnnotatedString(text.trim('\n')),
+            color = OnDarkSurface,
+            fontSize = 15.sp,
+            lineHeight = 24.sp
+        )
     }
 }
 
@@ -648,10 +803,12 @@ fun GlassInputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
     isGenerating: Boolean
 ) {
     val shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     val canSend = text.isNotBlank() && !isGenerating
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = Modifier
@@ -709,13 +866,20 @@ fun GlassInputBar(
                         }
                     )
                     .clickable(enabled = canSend || isGenerating) {
-                        if (isGenerating) { /* cancel handled outside */ } else onSend()
+                        if (isGenerating) {
+                            onStop()
+                        } else {
+                            onSend()
+                        }
+                    }
+                    .semantics {
+                        contentDescription = if (isGenerating) "Stop generation" else "Send message"
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
-                    contentDescription = if (isGenerating) "Stop" else "Send",
+                    contentDescription = null,
                     tint = when {
                         isGenerating -> WarmOrange
                         canSend      -> OnWarmOrange
@@ -737,9 +901,11 @@ fun HistorySidebar(
     onNewChat: () -> Unit,
     onLoadChat: (String) -> Unit,
     onDeleteChat: (String) -> Unit,
-    onDeleteAllHistory: () -> Unit
+    onDeleteAllHistory: () -> Unit,
+    onOpenSettings: () -> Unit = {}
 ) {
     var showDeleteAllDialog by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
     ModalDrawerSheet(
         drawerContainerColor = DarkSurface,
@@ -764,19 +930,33 @@ fun HistorySidebar(
                     fontSize = 20.sp,
                     modifier = Modifier.weight(1f)
                 )
+
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.semantics { contentDescription = "Open settings" }
+                ) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = null,
+                        tint = TextSecondary
+                    )
+                }
             }
 
             Surface(
                 onClick = onNewChat,
                 color = WarmOrange.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .semantics { contentDescription = "Start new chat" }
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Chat", tint = WarmOrange, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Add, contentDescription = null, tint = WarmOrange, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("New Chat", color = WarmOrange, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
@@ -806,16 +986,22 @@ fun HistorySidebar(
 
             if (conversations.isNotEmpty()) {
                 Surface(
-                    onClick = { showDeleteAllDialog = true },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showDeleteAllDialog = true
+                    },
                     color = Color.Transparent,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .semantics { contentDescription = "Clear all history" }
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.Outlined.DeleteSweep, contentDescription = "Clear History", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.DeleteSweep, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Clear History", color = TextSecondary, fontSize = 13.sp)
                     }
@@ -832,7 +1018,11 @@ fun HistorySidebar(
             title = { Text("Clear History", color = OnDarkSurface) },
             text = { Text("Delete all conversations? This cannot be undone.", color = TextSecondary) },
             confirmButton = {
-                TextButton(onClick = { onDeleteAllHistory(); showDeleteAllDialog = false }) {
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDeleteAllHistory()
+                    showDeleteAllDialog = false
+                }) {
                     Text("Delete All", color = Color(0xFFFF453A))
                 }
             },
@@ -853,12 +1043,16 @@ fun ConversationItem(
     onDelete: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
     Surface(
         onClick = onClick,
         color = if (isSelected) WarmOrange.copy(alpha = 0.1f) else Color.Transparent,
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .semantics { contentDescription = "Chat: ${conversation.title}" }
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
@@ -880,8 +1074,16 @@ fun ConversationItem(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = TextSecondary.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    showDeleteDialog = true
+                },
+                modifier = Modifier
+                    .size(32.dp)
+                    .semantics { contentDescription = "Delete conversation" }
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = null, tint = TextSecondary.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -892,7 +1094,11 @@ fun ConversationItem(
             title = { Text("Delete", color = OnDarkSurface) },
             text = { Text("Delete this conversation?", color = TextSecondary) },
             confirmButton = {
-                TextButton(onClick = { onDelete(); showDeleteDialog = false }) {
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDelete()
+                    showDeleteDialog = false
+                }) {
                     Text("Delete", color = Color(0xFFFF453A))
                 }
             },

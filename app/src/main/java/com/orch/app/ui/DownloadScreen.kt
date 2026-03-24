@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.*
@@ -16,7 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -28,16 +34,18 @@ import com.orch.app.ui.theme.*
 @Composable
 fun LoadingScreen(
     state: AppState,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onCancelDownload: () -> Unit = {}
 ) {
-    val isError   = state is AppState.Error
+    val isError = state is AppState.Error
     val isLoading = state is AppState.LoadingModel
     val isDownloading = state is AppState.Downloading
+    val haptic = LocalHapticFeedback.current
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.94f,
-        targetValue  = 1.06f,
+        targetValue = 1.06f,
         animationSpec = infiniteRepeatable(
             animation = tween(1400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -77,7 +85,7 @@ fun LoadingScreen(
                     if (isError) {
                         Icon(
                             Icons.Default.WifiOff,
-                            contentDescription = null,
+                            contentDescription = "Error icon",
                             tint = TextSecondary,
                             modifier = Modifier.size(72.dp)
                         )
@@ -95,10 +103,10 @@ fun LoadingScreen(
                 // Headline
                 Text(
                     text = when (state) {
-                        is AppState.Error       -> "Something went wrong"
+                        is AppState.Error -> "Something went wrong"
                         is AppState.LoadingModel -> "Loading model…"
-                        is AppState.Downloading  -> "Downloading Orch 1.7B"
-                        else                     -> "Starting up…"
+                        is AppState.Downloading -> "Downloading Orch 1.7B"
+                        else -> "Starting up…"
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 22.sp,
@@ -111,9 +119,9 @@ fun LoadingScreen(
                 // Sub-text
                 Text(
                     text = when (state) {
-                        is AppState.Error       -> state.message
+                        is AppState.Error -> state.message
                         is AppState.LoadingModel -> "Loading the reasoning model into memory.\nThis takes ~10 seconds on first launch."
-                        is AppState.Downloading  -> {
+                        is AppState.Downloading -> {
                             val mb = state.bytesDownloaded / 1_048_576L
                             val total = state.totalBytes / 1_048_576L
                             "$mb MB / $total MB\nOne-time download — stored privately on device."
@@ -167,14 +175,45 @@ fun LoadingScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )
+
+                    // Cancel download button
+                    Spacer(Modifier.height(20.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onCancelDownload()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                        border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
+                            brush = Brush.linearGradient(listOf(DarkSurfaceBorder, DarkSurfaceBorder))
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .semantics { contentDescription = "Cancel download" }
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cancel", color = TextSecondary, fontSize = 14.sp)
+                    }
                 } else if (isLoading) {
                     Spacer(Modifier.height(28.dp))
-                    
+
                     // Loading: indeterminate
                     LinearProgressIndicator(
                         color = WarmOrange,
                         trackColor = DarkSurfaceBorder,
-                        modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
                     )
                 }
 
@@ -182,12 +221,23 @@ fun LoadingScreen(
                 if (isError) {
                     Spacer(Modifier.height(28.dp))
                     Button(
-                        onClick = onRetry,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onRetry()
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = WarmOrange),
                         shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .semantics { contentDescription = "Try again" }
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = OnWarmOrange, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = OnWarmOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("Try Again", color = OnWarmOrange, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                     }

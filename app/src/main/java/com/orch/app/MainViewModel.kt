@@ -12,16 +12,14 @@ import com.orch.app.data.ChatHistoryRepository
 import com.orch.app.data.ChatMessage
 import com.orch.app.update.UpdateChecker
 import com.orch.app.update.UpdateUiState
+import com.orch.app.util.DeviceUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 
 private const val TAG = "MainViewModel"
@@ -87,7 +85,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Internals ──────────────────────────────────────────────────────────
     private var generationJob: Job? = null
-    private val httpClient = OkHttpClient()
 
     private val updateChecker by lazy {
         val versionCode = try {
@@ -126,9 +123,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun downloadModel(targetFile: File) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                _appState.value = AppState.Downloading(0, 0L, MODEL_EXPECTED_SIZE)
-                
                 val context = getApplication<Application>()
+
+                // Check network connectivity
+                if (!DeviceUtils.isNetworkAvailable(context)) {
+                    _appState.value = AppState.Error(
+                        "No internet connection.\n\n" +
+                        "Please connect to WiFi or mobile data and try again."
+                    )
+                    return@launch
+                }
+
+                // Check storage space
+                val storageDir = context.getExternalFilesDir(null)
+                if (!DeviceUtils.hasEnoughStorage(storageDir, MODEL_EXPECTED_SIZE)) {
+                    val available = DeviceUtils.formatBytes(DeviceUtils.getAvailableStorageBytes(storageDir))
+                    val required = DeviceUtils.formatBytes(MODEL_EXPECTED_SIZE)
+                    _appState.value = AppState.Error(
+                        "Not enough storage space.\n\n" +
+                        "Required: $required\n" +
+                        "Available: $available\n\n" +
+                        "Free up some space and try again."
+                    )
+                    return@launch
+                }
+
+                _appState.value = AppState.Downloading(0, 0L, MODEL_EXPECTED_SIZE)
+
                 val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
                 
                 // If it's already downloading, attach to it instead of restarting.
@@ -291,10 +312,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        sendMessageInternal(text.trim())
+    }
+
+    /** Internal message sending (used by sendMessage and regenerateResponse) */
+    private fun sendMessageInternal(text: String) {
         // Guard: ensure engine is ready
         if (engine.state.value !is com.arm.aichat.InferenceEngine.State.ModelReady) {
             _messages.value = _messages.value + ChatMessage(
-                text = "⚠️ Orch is not ready yet — the model is still loading.",
+                text = "Orch is not ready yet — the model is still loading.",
                 isUser = false
             )
             return
@@ -316,11 +342,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         generationJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                engine.sendUserPromptWithReasoning(text.trim()).collect { token ->
+                engine.sendUserPromptWithReasoning(text).collect { token ->
                     when (token) {
                         is ReasoningToken.Thinking -> {
                             thinkingBuffer.append(token.text)
-                            // Live-update thinking text so the UI can show streaming thought
                             _messages.value = _messages.value.map {
                                 if (it.id == placeholderId) it.copy(
                                     thinkingText = thinkingBuffer.toString(),
@@ -359,11 +384,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // User cancelled - mark message as incomplete but keep what we have
+                val currentText = contentBuffer.toString().trim()
+                if (currentText.isNotEmpty()) {
+                    _messages.value = _messages.value.map {
+                        if (it.id == placeholderId) it.copy(
+                            text = currentText + "\n\n[Generation stopped]",
+                            isThinking = false
+                        ) else it
+                    }
+                } else {
+                    // Remove empty placeholder
+                    _messages.value = _messages.value.filter { it.id != placeholderId }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Generation error", e)
                 _messages.value = _messages.value.map {
                     if (it.id == placeholderId) it.copy(
-                        text = "⚠️ Error: ${e.message}",
+                        text = "Error: ${e.message ?: "Unknown error occurred"}",
                         isThinking = false
                     ) else it
                 }
@@ -381,6 +420,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isGenerating.value = false
         _tokensPerSec.value = 0f
         stopForegroundService()
+
+        // Remove incomplete AI message if generation was cancelled
+        val msgs = _messages.value
+        if (msgs.isNotEmpty() && !msgs.last().isUser && msgs.last().text.isEmpty()) {
+            _messages.value = msgs.dropLast(1)
+        }
+        saveCurrentConversation()
+    }
+
+    /** Regenerate the last AI response */
+    fun regenerateResponse() {
+        if (_isGenerating.value) return
+        val msgs = _messages.value
+        if (msgs.isEmpty()) return
+
+        // Find the last user message and remove any AI responses after it
+        val lastUserIndex = msgs.indexOfLast { it.isUser }
+        if (lastUserIndex == -1) return
+
+        val userMessage = msgs[lastUserIndex].text
+        _messages.value = msgs.subList(0, lastUserIndex + 1)
+
+        // Re-send the user's message
+        sendMessageInternal(userMessage)
+    }
+
+    /** Cancel model download */
+    fun cancelDownload() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+
+                val query = android.app.DownloadManager.Query()
+                val cursor = downloadManager.query(query)
+                if (cursor != null) {
+                    while (cursor.moveToNext()) {
+                        val title = cursor.getString(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TITLE))
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                        if (title == "Orch AI Model" && status == android.app.DownloadManager.STATUS_RUNNING) {
+                            val downloadId = cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_ID))
+                            downloadManager.remove(downloadId)
+                            break
+                        }
+                    }
+                    cursor.close()
+                }
+
+                // Clean up partial file
+                val modelFile = File(context.getExternalFilesDir(null), MODEL_FILENAME)
+                if (modelFile.exists()) modelFile.delete()
+
+                _appState.value = AppState.Error("Download cancelled. Tap 'Try Again' to restart.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Cancel download failed", e)
+            }
+        }
     }
 
     // ── Foreground service ─────────────────────────────────────────────────
