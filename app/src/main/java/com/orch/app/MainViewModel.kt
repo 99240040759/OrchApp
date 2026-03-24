@@ -25,7 +25,7 @@ import java.io.IOException
 private const val TAG = "MainViewModel"
 
 // ── Model ──────────────────────────────────────────────────────────────────
-// Qwen3-1.7B Instruct Q4_K_M (~1.28 GB) — best balance for mobile (4GB+ RAM phones)
+// Orch reasoning model (~1.28 GB) — optimized for mobile (4GB+ RAM phones)
 // Thinking mode enabled: the model uses <think>...</think> chains before answering.
 private const val MODEL_URL =
     "https://huggingface.co/lm-kit/qwen-3-1.7b-instruct-gguf/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
@@ -38,8 +38,8 @@ private const val MODEL_EXPECTED_SIZE = 1282439360L   // ~1.28 GB Q4_K_M
 private const val GITHUB_OWNER = "sameer786ss"  // GitHub username
 private const val GITHUB_REPO  = "OrchApp"      // GitHub repo name
 
-// ── System prompt — Qwen3 thinking-mode ───────────────────────────────────
-// Qwen3 natively supports <think>…</think> chains when /think is in system prompt.
+// ── System prompt — reasoning model thinking-mode ─────────────────────────
+// The model natively supports <think>…</think> chains for reasoning.
 // The engine parses these as ReasoningToken.Thinking vs .Content automatically.
 private const val SYSTEM_PROMPT = """You are Orch AI, a powerful private reasoning assistant running fully offline on this device. You think carefully and thoroughly before giving your final answer. Format code with proper markdown fenced code blocks (``` followed by the language name). Be precise, helpful, and concise in your final answers."""
 
@@ -173,7 +173,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val request = android.app.DownloadManager.Request(android.net.Uri.parse(MODEL_URL))
                         .setTitle("Orch AI Model")
-                        .setDescription("Background downloading reasoning model ($MODEL_FILENAME)")
+                        .setDescription("Downloading reasoning model for offline AI")
                         .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE)
                         .setDestinationInExternalFilesDir(context, null, MODEL_FILENAME)
                         .setAllowedOverMetered(true)

@@ -105,7 +105,7 @@ fun LoadingScreen(
                     text = when (state) {
                         is AppState.Error -> "Something went wrong"
                         is AppState.LoadingModel -> "Loading model…"
-                        is AppState.Downloading -> "Downloading Orch 1.7B"
+                        is AppState.Downloading -> "Downloading Orch AI"
                         else -> "Starting up…"
                     },
                     fontWeight = FontWeight.Bold,

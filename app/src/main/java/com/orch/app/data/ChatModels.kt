@@ -7,7 +7,7 @@ data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
-    val thinkingText: String = "",   // Qwen3 <think>…</think> reasoning chain (if any)
+    val thinkingText: String = "",   // <think>…</think> reasoning chain (if any)
     val thinkingDurationMs: Long = 0,
     val isThinking: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
