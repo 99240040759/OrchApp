@@ -2,6 +2,7 @@ package com.orch.app.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -185,9 +186,7 @@ fun LoadingScreen(
                             onCancelDownload()
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
-                        border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                            brush = Brush.linearGradient(listOf(DarkSurfaceBorder, DarkSurfaceBorder))
-                        ),
+                        border = BorderStroke(1.dp, DarkSurfaceBorder),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
