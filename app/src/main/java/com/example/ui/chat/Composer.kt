@@ -45,6 +45,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +64,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.AsyncImage
 import com.example.ui.PendingAttachment
 import com.example.ui.theme.OrchAccentCoral
@@ -71,6 +76,7 @@ import com.example.ui.theme.OrchSurfaceElevated
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
 import com.example.voice.VoicePromptRecorder
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -81,7 +87,7 @@ fun Composer(
     attachments: List<PendingAttachment>,
     modelLabel: String,
     contextRatio: Float,
-    onSend: (String) -> Unit,
+    onSend: (String) -> Boolean,
     onStop: () -> Unit,
     onAttach: () -> Unit,
     onPickModel: () -> Unit,
@@ -187,8 +193,7 @@ fun Composer(
                             if (streaming) {
                                 onStop()
                             } else {
-                                onSend(state.text.toString())
-                                state.clearText()
+                                if (onSend(state.text.toString())) state.clearText()
                             }
                         }
                     )
@@ -267,50 +272,84 @@ private fun MicButton(transcribe: suspend (String, String) -> String?, onText: (
     val recorder = remember(context) { VoicePromptRecorder(context) }
     var recording by remember { mutableStateOf(false) }
     var transcribing by remember { mutableStateOf(false) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    val latestTranscribe by rememberUpdatedState(transcribe)
+    val latestOnText by rememberUpdatedState(onText)
 
     DisposableEffect(recorder) { onDispose { recorder.cancel() } }
 
-    fun start() {
-        recorder.start()
+    // A background app cannot record, so end the take instead of capturing silence.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (recording) {
+            recorder.cancel()
+            recording = false
+        }
+    }
+
+    LaunchedEffect(recording) {
+        elapsedSeconds = 0
+        while (recording) {
+            delay(1000)
+            elapsedSeconds++
+        }
+    }
+
+    fun finish() {
+        if (!recording) return
+        recording = false
+        recorder.stop()
+            .onSuccess { (audio, format) ->
+                scope.launch {
+                    transcribing = true
+                    try {
+                        latestTranscribe(audio, format)?.let(latestOnText)
+                    } finally {
+                        transcribing = false
+                    }
+                }
+            }
+            .onFailure { Toast.makeText(context, it.message ?: "Recording failed", Toast.LENGTH_SHORT).show() }
+    }
+
+    fun begin() {
+        recorder.start(onLimit = ::finish)
             .onSuccess { recording = true }
             .onFailure { Toast.makeText(context, it.message ?: "Microphone unavailable", Toast.LENGTH_SHORT).show() }
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) start()
+        if (granted) begin()
     }
 
-    fun stop() {
-        recording = false
-        recorder.stop().onSuccess { (audio, format) ->
-            scope.launch {
-                transcribing = true
-                transcribe(audio, format)?.let(onText)
-                transcribing = false
-            }
-        }.onFailure { Toast.makeText(context, it.message ?: "Recording failed", Toast.LENGTH_SHORT).show() }
-    }
-
-    IconButton(
-        enabled = !transcribing,
-        onClick = {
-            when {
-                recording -> stop()
-                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                    PackageManager.PERMISSION_GRANTED -> start()
-                else -> permission.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        },
-        modifier = Modifier.size(36.dp)
-    ) {
-        if (transcribing) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
-        } else {
-            Icon(
-                imageVector = if (recording) Icons.Rounded.Stop else Icons.Outlined.Mic,
-                contentDescription = if (recording) "Stop recording" else "Dictate",
-                tint = if (recording) OrchAccentCoral else OrchTextSecondary
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (recording) {
+            Text(
+                text = "%d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60),
+                style = MaterialTheme.typography.labelMedium,
+                color = OrchAccentCoral
             )
+        }
+        IconButton(
+            enabled = !transcribing,
+            onClick = {
+                when {
+                    recording -> finish()
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                        PackageManager.PERMISSION_GRANTED -> begin()
+                    else -> permission.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            modifier = Modifier.size(36.dp)
+        ) {
+            if (transcribing) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
+            } else {
+                Icon(
+                    imageVector = if (recording) Icons.Rounded.Stop else Icons.Outlined.Mic,
+                    contentDescription = if (recording) "Stop recording" else "Dictate",
+                    tint = if (recording) OrchAccentCoral else OrchTextSecondary
+                )
+            }
         }
     }
 }

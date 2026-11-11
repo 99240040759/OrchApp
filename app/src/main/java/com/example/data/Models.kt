@@ -45,19 +45,12 @@ data class Workspace(
 )
 
 @Serializable
-data class AttachmentPayload(
-    val name: String,
-    val dataBase64: String
-)
-
-@Serializable
 data class ChatRequest(
     val sessionId: String,
     val prompt: String,
     val model: String,
     val workspace: String? = null,
-    val repoUrl: String? = null,
-    val attachments: List<AttachmentPayload> = emptyList()
+    val repoUrl: String? = null
 )
 
 @Serializable

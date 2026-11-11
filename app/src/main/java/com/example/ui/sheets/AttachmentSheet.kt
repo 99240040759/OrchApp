@@ -75,7 +75,7 @@ fun AttachmentSheet(
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+        Column(modifier = Modifier.padding(bottom = 16.dp).imePadding()) {
             SheetAction(Icons.Outlined.Image, "Photos", "Attach images") {
                 onDismiss()
                 onPickImages()
@@ -139,7 +139,8 @@ private fun GitHubSection(chat: ChatUi, onConnect: (String) -> Unit, onDisconnec
     var editing by rememberSaveable { mutableStateOf(false) }
     var input by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(repo) { if (repo != null) editing = false }
-    val showForm = repo == null || editing
+    val locked = chat.repoLocked
+    val showForm = !locked && (repo == null || editing)
 
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -152,7 +153,11 @@ private fun GitHubSection(chat: ChatUi, onConnect: (String) -> Unit, onDisconnec
             Column(modifier = Modifier.weight(1f)) {
                 Text("GitHub", style = MaterialTheme.typography.titleMedium, color = OrchTextPrimary)
                 Text(
-                    text = if (repo != null && !editing) "Repository connected" else "Connect a public repository",
+                    text = when {
+                        repo != null && !editing -> "Repository connected"
+                        locked -> "This chat has no repository"
+                        else -> "Connect a public repository"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = OrchTextSecondary
                 )

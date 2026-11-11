@@ -24,7 +24,8 @@ data class WorkRow(
 @Immutable
 data class TextRow(
     override val key: String,
-    val text: String
+    val text: String,
+    val live: Boolean = false
 ) : ChatRow
 
 @Immutable
@@ -65,7 +66,13 @@ private fun rowsOf(message: ChatMessage): List<ChatRow> {
                 builder.append((items[i] as TextItem).text)
                 i++
             }
-            if (builder.isNotBlank()) rows += TextRow("${message.id}:t${items[start].id}", builder.toString())
+            if (builder.isNotBlank()) {
+                rows += TextRow(
+                    key = "${message.id}:t${items[start].id}",
+                    text = builder.toString(),
+                    live = message.streaming && i == items.size
+                )
+            }
         } else {
             while (i < items.size && items[i] !is TextItem) i++
             val group = items.subList(start, i).toList()

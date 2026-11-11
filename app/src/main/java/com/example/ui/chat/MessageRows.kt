@@ -98,7 +98,7 @@ fun ChatRowView(
     when (row) {
         is UserRow -> UserBubble(row, onOpenFile)
         is WorkRow -> WorkBlock(row, onOpenFile)
-        is TextRow -> ChatMarkdown(row.text)
+        is TextRow -> ChatMarkdown(row.text, streaming = row.live)
         is PendingRow -> StatusLabel("Thinking")
         is NoticeRow -> Notice(row)
         is CopyRow -> CopyAction(row.text)
@@ -135,16 +135,24 @@ private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
     }
 }
 
+private const val THUMBNAIL_PX = 144
+
+private fun decodeThumbnail(dataUrl: String): androidx.compose.ui.graphics.ImageBitmap? {
+    if (!dataUrl.contains("base64,")) return null
+    val bytes = Base64.decode(dataUrl.substringAfter("base64,"), Base64.DEFAULT)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= THUMBNAIL_PX && bounds.outHeight / (sample * 2) >= THUMBNAIL_PX) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+}
+
 @Composable
 private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> Unit) {
     val thumbnail by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, attachment.dataUrl) {
         value = attachment.dataUrl?.let { url ->
-            withContext(Dispatchers.Default) {
-                runCatching {
-                    val bytes = Base64.decode(url.substringAfter("base64,"), Base64.DEFAULT)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                }.getOrNull()
-            }
+            withContext(Dispatchers.Default) { runCatching { decodeThumbnail(url) }.getOrNull() }
         }
     }
     val path = attachment.path
@@ -179,7 +187,11 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
 @Composable
 private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
     var toggled by rememberSaveable(row.key) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(row.live) { if (!row.live) toggled = null }
+    var wasLive by remember { mutableStateOf(row.live) }
+    LaunchedEffect(row.live) {
+        if (wasLive && !row.live) toggled = null
+        wasLive = row.live
+    }
     val open = toggled ?: row.live
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -245,7 +257,11 @@ private fun StatusLabel(text: String) {
 @Composable
 private fun ThinkingBlock(item: ReasoningItem) {
     var toggled by rememberSaveable(item.id) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(item.active) { if (!item.active) toggled = null }
+    var wasActive by remember { mutableStateOf(item.active) }
+    LaunchedEffect(item.active) {
+        if (wasActive && !item.active) toggled = null
+        wasActive = item.active
+    }
     val open = toggled ?: item.active
     val label = if (item.active) "Thinking" else "Thought"
 
@@ -272,7 +288,7 @@ private fun ThinkingBlock(item: ReasoningItem) {
                     .heightIn(max = 260.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                ChatMarkdown(item.text.trim(), color = OrchTextSecondary, compact = true)
+                ChatMarkdown(item.text.trim(), color = OrchTextSecondary, compact = true, streaming = item.active)
             }
         }
     }
@@ -294,7 +310,7 @@ private fun ToolRow(item: ToolItem, onOpenFile: (String) -> Unit) {
                 .padding(vertical = 4.dp)
         ) {
             Text(
-                text = item.display.label,
+                text = if (item.status == ToolStatus.Running) item.display.activeLabel else item.display.label,
                 style = MaterialTheme.typography.bodyMedium,
                 color = OrchTextSecondary
             )

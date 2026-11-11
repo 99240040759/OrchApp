@@ -15,8 +15,8 @@ android {
     applicationId = "com.orch.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+    versionName = System.getenv("VERSION_NAME") ?: "1.0"
 
     buildConfigField("String", "ORCH_API_BASE_URL", "\"https://orchapi.duckdns.org\"")
     buildConfigField("String", "ORCH_TERMS_URL", "\"https://orch.live/terms\"")
@@ -95,7 +95,6 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.markdown.renderer)
   implementation(libs.markdown.renderer.m3)
-  implementation(libs.markdown.renderer.code)
   implementation(libs.firebase.auth)
   implementation(libs.firebase.firestore)
   implementation(libs.androidx.credentials)

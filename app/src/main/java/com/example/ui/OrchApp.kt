@@ -1,19 +1,13 @@
 package com.example.ui
 
+import android.app.Application
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -24,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -46,9 +39,14 @@ import kotlinx.coroutines.launch
 private enum class Sheet { None, Attach, Files, Models, Account }
 
 @Composable
-fun OrchApp(userId: String, userName: String?, userEmail: String?) {
-    val vm: OrchViewModel = viewModel(key = userId, factory = OrchViewModel.factory)
+fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: String?) {
     val context = LocalContext.current
+    val application = context.applicationContext as Application
+    val vm: OrchViewModel = viewModel(
+        viewModelStoreOwner = userScope,
+        key = userId,
+        factory = remember(application) { OrchViewModel.factory(application) }
+    )
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbar = remember { SnackbarHostState() }
@@ -62,9 +60,14 @@ fun OrchApp(userId: String, userName: String?, userEmail: String?) {
     val attachments by vm.attachments.collectAsStateWithLifecycle()
     val files by vm.files.collectAsStateWithLifecycle()
     val artifact by vm.artifact.collectAsStateWithLifecycle()
+    val saving by vm.saving.collectAsStateWithLifecycle()
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onForeground() }
     LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(it) } }
+    // Toasts are drawn above bottom sheets, unlike the snackbar.
+    LaunchedEffect(vm) {
+        vm.saveResults.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) {
         vm.addAttachments(it)
@@ -100,32 +103,25 @@ fun OrchApp(userId: String, userName: String?, userEmail: String?) {
             }
         }
     ) {
-        Box {
-            ChatScreen(
-                title = title,
-                chat = chat,
-                attachments = attachments,
-                models = models,
-                selectedModelId = selectedModelId,
-                onMenu = { scope.launch { drawerState.open() } },
-                onNewChat = vm::newChat,
-                onSend = vm::send,
-                onStop = vm::stop,
-                onAttach = { sheet = Sheet.Attach },
-                onPickModel = { sheet = Sheet.Models },
-                onRemoveAttachment = vm::removeAttachment,
-                onOpenFile = vm::openFile,
-                onLoadEarlier = vm::loadEarlier,
-                transcribe = vm::transcribe
-            )
-            SnackbarHost(
-                hostState = snackbar,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                    .padding(bottom = 96.dp)
-            )
-        }
+        ChatScreen(
+            title = title,
+            chat = chat,
+            attachments = attachments,
+            models = models,
+            selectedModelId = selectedModelId,
+            snackbar = snackbar,
+            onMenu = { scope.launch { drawerState.open() } },
+            onNewChat = vm::newChat,
+            onSend = vm::send,
+            onStop = vm::stop,
+            onAttach = { sheet = Sheet.Attach },
+            onPickModel = { sheet = Sheet.Models },
+            onRemoveAttachment = vm::removeAttachment,
+            onOpenFile = vm::openFile,
+            onLoadEarlier = vm::loadEarlier,
+            onRetryLoad = { vm.openSession(chat.sessionId, force = true) },
+            transcribe = vm::transcribe
+        )
     }
 
     when (sheet) {
@@ -156,11 +152,17 @@ fun OrchApp(userId: String, userName: String?, userEmail: String?) {
             email = userEmail,
             budget = budget,
             onSignOut = {
+                userScope.autoSignIn = false
                 signOutUser(CredentialManager.create(context), scope)
             },
             onDismiss = { sheet = Sheet.None }
         )
     }
 
-    ArtifactModalBottomSheet(state = artifact, onDismiss = vm::closeArtifact)
+    ArtifactModalBottomSheet(
+        state = artifact,
+        saving = saving,
+        onSave = vm::saveArtifact,
+        onDismiss = vm::closeArtifact
+    )
 }

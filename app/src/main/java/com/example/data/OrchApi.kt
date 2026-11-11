@@ -4,6 +4,7 @@ import com.example.BuildConfig
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -26,6 +27,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
@@ -33,6 +35,16 @@ import java.util.concurrent.TimeUnit
 val OrchJson = Json {
     ignoreUnknownKeys = true
     explicitNulls = false
+    coerceInputValues = true
+}
+
+/** Like [runCatching], but never swallows coroutine cancellation. */
+inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
+    Result.success(block())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Throwable) {
+    Result.failure(failure)
 }
 
 interface OrchApi {
@@ -86,6 +98,7 @@ interface OrchApi {
         @Query("path") path: String
     ): ImageData
 
+    @Streaming
     @GET("cloud/files/binary")
     suspend fun fileBinary(
         @Query("sessionId") sessionId: String,
@@ -156,6 +169,7 @@ class OrchClient {
 
     val sseHttp: OkHttpClient = http.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
     val baseUrl: HttpUrl = (BuildConfig.ORCH_API_BASE_URL.trimEnd('/') + "/").toHttpUrl()

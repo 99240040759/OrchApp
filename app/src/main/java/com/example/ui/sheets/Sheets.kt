@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,7 +72,7 @@ fun FilesSheet(
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp).imePadding()) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -109,6 +111,12 @@ fun FilesSheet(
                         strokeWidth = 2.dp,
                         color = OrchTextSecondary
                     )
+                    files.error != null -> Text(
+                        text = files.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OrchAccentCoral,
+                        modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp)
+                    )
                     files.entries.isEmpty() -> Text(
                         text = "No files found",
                         style = MaterialTheme.typography.bodyMedium,
@@ -136,7 +144,7 @@ fun ModelSheet(
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
             models.forEach { model ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -149,12 +157,18 @@ fun ModelSheet(
                         .padding(horizontal = 20.dp, vertical = 14.dp)
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(model.name, style = MaterialTheme.typography.titleMedium, color = OrchTextPrimary)
                         Text(
-                            text = "${model.contextWindow / 1000}K context",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OrchTextSecondary
+                            text = listOfNotNull(model.name, model.badge).joinToString(" · "),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OrchTextPrimary
                         )
+                        if (model.contextWindow > 0) {
+                            Text(
+                                text = "${formatContext(model.contextWindow)} context",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = OrchTextSecondary
+                            )
+                        }
                     }
                     if (model.id == selectedId) {
                         Icon(Icons.Rounded.Check, "Selected", tint = OrchAccentCoral)
@@ -230,4 +244,10 @@ fun AccountSheet(
             }
         }
     }
+}
+
+private fun formatContext(tokens: Long): String = when {
+    tokens >= 1_000_000 && tokens % 1_000_000 == 0L -> "${tokens / 1_000_000}M"
+    tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
+    else -> "${tokens / 1000}K"
 }

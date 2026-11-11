@@ -7,10 +7,13 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.OrchApp
+import com.example.ui.UserScope
 import com.example.ui.auth.AuthScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.google.firebase.Firebase
@@ -44,13 +47,23 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AppRoot(auth: FirebaseAuth = Firebase.auth) {
+    val userScope: UserScope = viewModel()
     val user by auth.authState().collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val current = user
     if (current == null) {
-        AuthScreen(onAuthSuccess = {})
+        LaunchedEffect(Unit) { userScope.reset() }
+        AuthScreen(
+            autoPrompt = userScope.autoSignIn,
+            onAuthSuccess = { userScope.autoSignIn = true }
+        )
     } else {
         key(current.uid) {
-            OrchApp(userId = current.uid, userName = current.displayName, userEmail = current.email)
+            OrchApp(
+                userScope = userScope,
+                userId = current.uid,
+                userName = current.displayName,
+                userEmail = current.email
+            )
         }
     }
 }

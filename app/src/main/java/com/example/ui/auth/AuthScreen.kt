@@ -75,6 +75,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Co
 import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -174,9 +175,13 @@ fun launchBottomSheetSignIn(
                 } else {
                     onUnauthenticated()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 onUnauthenticated()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             onUnauthenticated()
         }
@@ -241,6 +246,8 @@ fun onGoogleSignInClicked(
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In cancelled: ${e.message}", e)
             onAuthCancelled()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
             onAuthError(e.localizedMessage ?: "Unable to sign in.")
@@ -269,6 +276,7 @@ fun signOutUser(
 
 @Composable
 fun AuthScreen(
+    autoPrompt: Boolean = true,
     onAuthSuccess: () -> Unit
 ) {
     val context = LocalContext.current
@@ -281,11 +289,16 @@ fun AuthScreen(
     val privacyUrl = BuildConfig.ORCH_PRIVACY_URL
 
     LaunchedEffect(Unit) {
+        if (!autoPrompt) return@LaunchedEffect
+        isLoading = true
         launchBottomSheetSignIn(
             context = context,
             credentialManager = credentialManager,
-            onAuthSuccess = onAuthSuccess,
-            onUnauthenticated = {},
+            onAuthSuccess = {
+                isLoading = false
+                onAuthSuccess()
+            },
+            onUnauthenticated = { isLoading = false },
             scope = scope
         )
     }

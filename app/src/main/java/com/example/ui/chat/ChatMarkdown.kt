@@ -20,28 +20,10 @@ import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchSurfaceElevated
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.SpaceGroteskFontFamily
-import com.mikepenz.markdown.compose.components.markdownComponents
-import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeBlock
-import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeFence
 import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.m3.elements.MarkdownCheckBox
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
-import dev.snipme.highlights.Highlights
-import dev.snipme.highlights.model.SyntaxThemes
-
-private val SharedDarkHighlights = Highlights.Builder().theme(SyntaxThemes.default(darkMode = true))
-
-private val SharedMarkdownComponents = markdownComponents(
-    codeFence = {
-        MarkdownHighlightedCodeFence(it.content, it.node, it.typography.code, SharedDarkHighlights, showHeader = true)
-    },
-    codeBlock = {
-        MarkdownHighlightedCodeBlock(it.content, it.node, it.typography.code, SharedDarkHighlights)
-    },
-    checkbox = { MarkdownCheckBox(it.content, it.node, it.typography.text) }
-)
 
 private val SharedLinkStyles = TextLinkStyles(
     style = SpanStyle(color = OrchAccentCoral, textDecoration = TextDecoration.Underline)
@@ -62,14 +44,21 @@ private data class CachedMarkdownStyles(
     val table: TextStyle
 )
 
+/**
+ * @param streaming true while the text is still being produced. Finished text is parsed
+ * synchronously on first composition so rows never appear empty and then grow, which would
+ * shift the list while scrolling. Streaming text is re-parsed in the background and keeps
+ * showing the previous result in the meantime.
+ */
 @Composable
 fun ChatMarkdown(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = OrchTextPrimary,
-    compact: Boolean = false
+    compact: Boolean = false,
+    streaming: Boolean = false
 ) {
-    val state = rememberMarkdownState(text, retainState = true)
+    val state = rememberMarkdownState(text, retainState = true, immediate = !streaming)
     val baseBodyLarge = MaterialTheme.typography.bodyLarge
     val baseBodyMedium = MaterialTheme.typography.bodyMedium
     val baseLabelMedium = MaterialTheme.typography.labelMedium
@@ -138,7 +127,6 @@ fun ChatMarkdown(
             textLink = SharedLinkStyles,
             table = styles.table
         ),
-        components = SharedMarkdownComponents,
         modifier = modifier.fillMaxWidth()
     )
 }
