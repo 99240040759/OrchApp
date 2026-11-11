@@ -1,6 +1,0 @@
-{
-  "summary":  "Updated remediation plan incorporating collapsed-by-default Working/Worked state, shimmer animation with zero duration timers, auto-collapse on final response, 120.dp max-height scrollable step dropdown cards, and full Firestore + Cloud Harness synchronization.",
-  "updatedAt":  "2026-11-11T11:18:37.712892091Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}
