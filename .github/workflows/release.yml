@@ -3,11 +3,10 @@ name: Release
 # Build happens here (99240040759/OrchApp). Only the finished APK is published,
 # to sameer786ss/orchapp, as a release asset that is always named Orch.apk:
 #   https://github.com/sameer786ss/orchapp/releases/latest/download/Orch.apk
+# Release by pushing a version tag:  git tag v1.0.0 && git push origin v1.0.0
 on:
   push:
-    branches: [main]
-    paths-ignore: ["**.md", "public/**"]
-  workflow_dispatch:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 concurrency:
   group: release
@@ -23,9 +22,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      VERSION_CODE: ${{ github.run_number }}
-      VERSION_NAME: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
 
@@ -48,6 +44,11 @@ jobs:
         run: |
           : "${GOOGLE_SERVICES_JSON_BASE64:?Missing GOOGLE_SERVICES_JSON_BASE64 secret}"
           : "${RELEASE_KEYSTORE_BASE64:?Missing RELEASE_KEYSTORE_BASE64 secret}"
+          # vMAJOR.MINOR.PATCH -> versionName MAJOR.MINOR.PATCH, versionCode MAJOR*1000000 + MINOR*1000 + PATCH.
+          # The app's updater uses the same formula to compare versions.
+          IFS=. read -r major minor patch <<< "${GITHUB_REF_NAME#v}"
+          export VERSION_NAME="${GITHUB_REF_NAME#v}"
+          export VERSION_CODE=$(( major * 1000000 + minor * 1000 + patch ))
           echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
           echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
@@ -58,7 +59,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          tag="v${{ github.run_number }}"
+          tag="$GITHUB_REF_NAME"
           if gh release view "$tag" --repo "$PUBLISH_REPO" > /dev/null 2>&1; then
             gh release delete "$tag" --repo "$PUBLISH_REPO" --yes --cleanup-tag
           fi

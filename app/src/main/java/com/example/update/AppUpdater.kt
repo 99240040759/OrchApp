@@ -46,8 +46,8 @@ private data class GithubAsset(
  * Looks for a newer release of this app in GitHub Releases, downloads it and hands it to
  * Android's package installer.
  *
- * CI tags each release `v<run number>` and uses the same number as the app's versionCode,
- * so "newer" is a plain numeric comparison.
+ * Releases are tagged `vMAJOR.MINOR.PATCH`. CI turns the tag into the app's versionCode with
+ * [versionCodeOf] (the same formula lives in release.yml), so "newer" is a numeric comparison.
  */
 class AppUpdater(private val context: Context) {
 
@@ -74,7 +74,7 @@ class AppUpdater(private val context: Context) {
         } ?: return@withContext null
         val release = runCatching { OrchJson.decodeFromString<GithubRelease>(body) }.getOrNull()
             ?: return@withContext null
-        val versionCode = release.tag.removePrefix("v").toLongOrNull() ?: return@withContext null
+        val versionCode = versionCodeOf(release.tag) ?: return@withContext null
         val asset = release.assets.firstOrNull { it.name == APK_NAME && it.url.isNotBlank() }
             ?: return@withContext null
         UpdateInfo(versionCode, release.tag, asset.url, asset.size)
@@ -183,5 +183,12 @@ class AppUpdater(private val context: Context) {
     private companion object {
         const val APK_NAME = "Orch.apk"
         const val BUFFER_BYTES = 64 * 1024
+        val TAG_PATTERN = Regex("""^v?(\d+)\.(\d+)\.(\d+)$""")
+
+        /** MAJOR * 1,000,000 + MINOR * 1,000 + PATCH, or null when the tag isn't a version. */
+        fun versionCodeOf(tag: String): Long? {
+            val (major, minor, patch) = TAG_PATTERN.matchEntire(tag)?.destructured ?: return null
+            return major.toLong() * 1_000_000 + minor.toLong() * 1_000 + patch.toLong()
+        }
     }
 }
