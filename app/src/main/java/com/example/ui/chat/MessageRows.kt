@@ -191,7 +191,7 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
                 .padding(vertical = 4.dp)
         ) {
             if (row.live) {
-                StatusLabel(currentStatus(row.items))
+                StatusLabel("Working")
             } else {
                 Text(
                     text = "Worked",
@@ -223,21 +223,6 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
     }
 }
 
-private fun formatDuration(seconds: Int): String {
-    if (seconds < 60) return "${seconds}s"
-    val minutes = seconds / 60
-    val rest = seconds % 60
-    return if (rest == 0) "${minutes}m" else "${minutes}m ${rest}s"
-}
-
-private fun currentStatus(items: List<ChatItem>): String {
-    val running = items.lastOrNull { it is ToolItem && it.status == ToolStatus.Running } as? ToolItem
-    if (running == null) return "Thinking"
-    val display = running.display
-    val target = (display.filename ?: display.target).orEmpty().replace(Regex("\\s+"), " ").trim()
-    return if (target.isEmpty()) display.activeLabel else "${display.activeLabel} $target"
-}
-
 @Composable
 private fun StatusLabel(text: String) {
     val transition = rememberInfiniteTransition(label = "shimmer")
@@ -262,21 +247,7 @@ private fun ThinkingBlock(item: ReasoningItem) {
     var toggled by rememberSaveable(item.id) { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(item.active) { if (!item.active) toggled = null }
     val open = toggled ?: item.active
-    val elapsed by produceState(item.durationSec, item.active, item.startedAt) {
-        if (!item.active) {
-            value = item.durationSec
-            return@produceState
-        }
-        while (true) {
-            value = ((System.currentTimeMillis() - item.startedAt) / 1000).toInt().coerceAtLeast(1)
-            delay(1000)
-        }
-    }
-    val label = when {
-        item.active -> "Thinking for ${formatDuration(elapsed)}"
-        item.durationSec > 0 -> "Thought for ${formatDuration(item.durationSec)}"
-        else -> "Thought process"
-    }
+    val label = if (item.active) "Thinking" else "Thought"
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(

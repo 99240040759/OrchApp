@@ -10,10 +10,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 
-class ChatReducer(
-    private val clock: () -> Long = System::currentTimeMillis,
-    private val idPrefix: String = "c"
-) {
+class ChatReducer(private val idPrefix: String = "c") {
 
     private enum class Kind { Thought, Text, Other }
 
@@ -49,7 +46,7 @@ class ChatReducer(
     }
 
     fun prepend(records: List<StoredRecord>) {
-        val older = ArrayList(ChatReducer(clock, "p${counter++}-").apply { load(records) }.messages)
+        val older = ArrayList(ChatReducer("p${counter++}-").apply { load(records) }.messages)
         val tail = older.lastOrNull()
         val head = list.firstOrNull()
         if (tail != null && head != null && tail.role == Role.Assistant && head.role == Role.Assistant) {
@@ -112,43 +109,38 @@ class ChatReducer(
     }
 
     private fun settle(cancelled: Boolean = false, error: String? = null) {
-        val now = clock()
         val failed = cancelled || error != null
         updateStreaming { message ->
             message.copy(
                 streaming = false,
                 cancelled = cancelled,
                 error = error,
-                finishedAt = now,
-                items = message.items.mapNotNull { item -> settleItem(item, now, failed) }
+                items = message.items.mapNotNull { item -> settleItem(item, failed) }
             )
         }
         kinds.clear()
     }
 
-    private fun settleItem(item: ChatItem, now: Long, failed: Boolean): ChatItem? = when {
+    private fun settleItem(item: ChatItem, failed: Boolean): ChatItem? = when {
         item is ReasoningItem && item.text.isBlank() -> null
-        item is ReasoningItem && item.active -> item.copy(active = false, durationSec = secondsSince(item.startedAt, now))
+        item is ReasoningItem && item.active -> item.copy(active = false)
         item is ToolItem && item.status == ToolStatus.Running ->
             item.copy(status = if (failed) ToolStatus.Error else ToolStatus.Done)
         else -> item
     }
 
-    private fun secondsSince(start: Long, now: Long): Int = ((now - start + 500) / 1000).toInt().coerceAtLeast(1)
-
     private fun stepStart(data: JsonObject) {
         val index = data["index"].asInt() ?: return
         val step = data["step"] as? JsonObject ?: return
-        val now = clock()
         when (step.str("type")) {
             "thought" -> {
                 kinds[index] = Kind.Thought
-                mutateItems { it + ReasoningItem(newId(), "", active = true, startedAt = now) }
+                mutateItems { it + ReasoningItem(newId(), "", active = true) }
             }
             "model_output" -> kinds[index] = Kind.Text
             else -> {
                 kinds[index] = Kind.Other
-                val tool = toolFromStep(step, now)
+                val tool = toolFromStep(step)
                 if (tool != null) {
                     mutateItems { it + tool }
                 } else {
@@ -164,17 +156,16 @@ class ChatReducer(
         val index = data["index"].asInt() ?: return
         val text = deltaText(data["delta"])
         if (text.isEmpty()) return
-        val now = clock()
         when (kinds[index]) {
             Kind.Thought -> mutateItems { items ->
                 val last = items.lastOrNull()
                 if (last is ReasoningItem && last.active) items.dropLast(1) + last.copy(text = last.text + text)
-                else items + ReasoningItem(newId(), text, active = true, startedAt = now)
+                else items + ReasoningItem(newId(), text, active = true)
             }
             Kind.Text -> mutateItems { items ->
                 val last = items.lastOrNull()
                 if (last is TextItem) items.dropLast(1) + last.copy(text = last.text + text)
-                else items + TextItem(newId(), text, now)
+                else items + TextItem(newId(), text)
             }
             else -> Unit
         }
@@ -185,12 +176,11 @@ class ChatReducer(
         ((data["step_usage"] as? JsonObject)?.get("total_input_tokens")).asLong()?.let { contextTokens = it }
         val kind = kinds.remove(index)
         if (kind != Kind.Thought) return
-        val now = clock()
         mutateItems { items ->
             val position = items.indexOfLast { it is ReasoningItem && it.active }
             if (position < 0) return@mutateItems items
             val item = items[position] as ReasoningItem
-            val closed = item.copy(active = false, durationSec = secondsSince(item.startedAt, now))
+            val closed = item.copy(active = false)
             if (item.text.isBlank()) items.filterIndexed { i, _ -> i != position }
             else items.mapIndexed { i, entry -> if (i == position) closed else entry }
         }
@@ -215,15 +205,14 @@ class ChatReducer(
         val text = deltas.joinToString("") { deltaText(it) }
         val index = ensureAssistant()
         val message = list[index]
-        val now = 0L
         val items = when (step.str("type")) {
             "thought" ->
                 if (text.isBlank()) message.items
-                else message.items + ReasoningItem(newId(), text, active = false, startedAt = now)
+                else message.items + ReasoningItem(newId(), text, active = false)
             "model_output" ->
-                if (text.isBlank()) message.items else message.items + TextItem(newId(), text, now)
+                if (text.isBlank()) message.items else message.items + TextItem(newId(), text)
             else -> {
-                val tool = toolFromStep(step, now)?.copy(status = ToolStatus.Done)
+                val tool = toolFromStep(step)?.copy(status = ToolStatus.Done)
                 if (tool != null) {
                     message.items + tool
                 } else {
@@ -285,7 +274,7 @@ class ChatReducer(
         return lines.joinToString("\n").trim() to attachments
     }
 
-    private fun toolFromStep(step: JsonObject, now: Long): ToolItem? {
+    private fun toolFromStep(step: JsonObject): ToolItem? {
         val callId = step.str("id").orEmpty()
         val arguments = step["arguments"] as? JsonObject ?: JsonObject(emptyMap())
         val (name, args) = when (step.str("type")) {
@@ -297,7 +286,7 @@ class ChatReducer(
             "url_context_call" -> "browse" to arguments
             else -> return null
         }
-        return ToolItem(newId(), callId, toolDisplay(name, args), null, ToolStatus.Running, now)
+        return ToolItem(newId(), callId, toolDisplay(name, args), null, ToolStatus.Running)
     }
 
     private fun resultFromStep(step: JsonObject): Triple<String, String?, Boolean>? {

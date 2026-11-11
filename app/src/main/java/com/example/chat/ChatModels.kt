@@ -6,21 +6,17 @@ enum class ToolStatus { Running, Done, Error }
 
 sealed interface ChatItem {
     val id: String
-    val startedAt: Long
 }
 
 data class TextItem(
     override val id: String,
-    val text: String,
-    override val startedAt: Long
+    val text: String
 ) : ChatItem
 
 data class ReasoningItem(
     override val id: String,
     val text: String,
-    val active: Boolean,
-    override val startedAt: Long,
-    val durationSec: Int = 0
+    val active: Boolean
 ) : ChatItem
 
 data class ToolItem(
@@ -28,8 +24,7 @@ data class ToolItem(
     val callId: String,
     val display: ToolDisplay,
     val output: String?,
-    val status: ToolStatus,
-    override val startedAt: Long
+    val status: ToolStatus
 ) : ChatItem
 
 data class UserAttachment(
@@ -46,8 +41,7 @@ data class ChatMessage(
     val items: List<ChatItem> = emptyList(),
     val streaming: Boolean = false,
     val error: String? = null,
-    val cancelled: Boolean = false,
-    val finishedAt: Long = 0
+    val cancelled: Boolean = false
 )
 
 data class Repo(
