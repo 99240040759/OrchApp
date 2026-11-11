@@ -19,6 +19,7 @@ android {
     versionName = System.getenv("VERSION_NAME") ?: "1.0"
 
     buildConfigField("String", "ORCH_API_BASE_URL", "\"https://orchapi.duckdns.org\"")
+    buildConfigField("String", "ORCH_UPDATE_REPO", "\"sameer786ss/orchapp\"")
     buildConfigField("String", "ORCH_TERMS_URL", "\"https://orch.live/terms\"")
     buildConfigField("String", "ORCH_PRIVACY_URL", "\"https://orch.live/privacy\"")
   }

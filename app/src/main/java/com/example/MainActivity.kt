@@ -10,12 +10,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.OrchApp
 import com.example.ui.UserScope
 import com.example.ui.auth.AuthScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.update.UpdateDialog
+import com.example.update.UpdateViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -48,6 +52,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot(auth: FirebaseAuth = Firebase.auth) {
     val userScope: UserScope = viewModel()
+    val updates: UpdateViewModel = viewModel()
+    val update by updates.dialog.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { updates.check() }
     val user by auth.authState().collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val current = user
     if (current == null) {
@@ -66,4 +73,11 @@ private fun AppRoot(auth: FirebaseAuth = Firebase.auth) {
             )
         }
     }
+
+    UpdateDialog(
+        state = update,
+        onRestart = updates::install,
+        onRetry = updates::retry,
+        onLater = updates::later
+    )
 }
