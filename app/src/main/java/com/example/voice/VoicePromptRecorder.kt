@@ -8,57 +8,58 @@ import java.io.File
 
 class VoicePromptRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
-    private var outputFile: File? = null
+    private var output: File? = null
 
-    fun startRecording(): Result<File> = runCatching {
-        stopRecordingCleanup()
-        val voiceDir = File(context.cacheDir, "voice").apply { mkdirs() }
-        val file = File(voiceDir, "prompt_${System.currentTimeMillis()}.m4a")
-        val mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    fun start(): Result<File> = runCatching {
+        cancel()
+        val file = File(File(context.cacheDir, "voice").apply { mkdirs() }, "prompt_${System.currentTimeMillis()}.m4a")
+        val media = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
         } else {
             @Suppress("DEPRECATION")
             MediaRecorder()
         }
-        mediaRecorder.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioSamplingRate(16000)
-            setAudioEncodingBitRate(64000)
-            setOutputFile(file.absolutePath)
-            prepare()
-            start()
+        try {
+            media.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioSamplingRate(16000)
+                setAudioEncodingBitRate(64000)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+        } catch (error: Exception) {
+            media.release()
+            throw error
         }
-        recorder = mediaRecorder
-        outputFile = file
+        recorder = media
+        output = file
         file
     }
 
-    fun stopAndEncodeBase64(): Result<Pair<String, String>> = runCatching {
-        val activeRecorder = recorder ?: error("No active voice recording")
+    fun stop(): Result<Pair<String, String>> = runCatching {
+        val media = checkNotNull(recorder) { "No active recording" }
+        recorder = null
         try {
-            activeRecorder.stop()
+            media.stop()
         } finally {
-            activeRecorder.release()
-            recorder = null
+            media.release()
         }
-        val file = outputFile ?: error("Recorded audio file missing")
-        val bytes = file.readBytes()
-        require(bytes.isNotEmpty()) { "Recorded audio is empty" }
-        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        encoded to "m4a"
+        val file = checkNotNull(output) { "Recording file missing" }
+        val bytes = file.readBytes().also { file.delete() }
+        check(bytes.isNotEmpty()) { "Recorded audio is empty" }
+        Base64.encodeToString(bytes, Base64.NO_WRAP) to "m4a"
     }
 
-    fun stopRecordingCleanup() {
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-        }
-        try {
-            recorder?.release()
-        } catch (_: Exception) {
+    fun cancel() {
+        recorder?.let { media ->
+            runCatching { media.stop() }
+            runCatching { media.release() }
         }
         recorder = null
+        output?.delete()
+        output = null
     }
 }

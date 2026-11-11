@@ -1,12 +1,6 @@
 package com.example.data.parser
 
 import android.util.Xml
-import com.example.data.model.DocxBlock
-import com.example.data.model.DocxDocument
-import com.example.data.model.PptxDeck
-import com.example.data.model.PptxSlide
-import com.example.data.model.XlsxSheet
-import com.example.data.model.XlsxWorkbook
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream

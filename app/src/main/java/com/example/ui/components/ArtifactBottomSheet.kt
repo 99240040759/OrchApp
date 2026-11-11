@@ -84,12 +84,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
-import com.example.data.model.ArtifactFormat
-import com.example.data.model.DocxBlock
-import com.example.data.model.DocxDocument
-import com.example.data.model.FileMetadata
-import com.example.data.model.PptxDeck
-import com.example.data.model.XlsxWorkbook
+import com.example.data.ArtifactContent
+import com.example.data.ArtifactState
+import com.example.data.FileMetadata
+import com.example.data.parser.DocxBlock
+import com.example.data.parser.DocxDocument
+import com.example.data.parser.PptxDeck
+import com.example.data.parser.XlsxWorkbook
+import com.example.ui.chat.ChatMarkdown
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.OrchAccentAmber
 import com.example.ui.theme.OrchAccentCoral
@@ -99,7 +101,6 @@ import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchSurfaceElevated
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
-import com.example.ui.viewmodel.ArtifactSheetState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -108,125 +109,55 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactModalBottomSheet(
-    state: ArtifactSheetState,
+    state: ArtifactState,
     onDismiss: () -> Unit
 ) {
-    if (state is ArtifactSheetState.Hidden) return
-
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (state is ArtifactState.Hidden) return
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary,
-        modifier = Modifier
-            .fillMaxHeight(0.92f)
-            .testTag("artifact_modal_bottom_sheet")
+        modifier = Modifier.fillMaxHeight(0.92f)
     ) {
         when (state) {
-            is ArtifactSheetState.Hidden -> Unit
-            is ArtifactSheetState.Loading -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(340.dp)
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(color = OrchAccentCoral)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Loading ${state.name}...",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OrchTextPrimary
-                    )
-                    Text(
-                        text = state.path,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = OrchTextSecondary
-                    )
+            is ArtifactState.Hidden -> Unit
+            is ArtifactState.Loading -> Column(
+                modifier = Modifier.fillMaxWidth().height(340.dp).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(color = OrchAccentCoral)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Loading ${state.name}", style = MaterialTheme.typography.titleMedium, color = OrchTextPrimary)
+                Text(state.path, style = MaterialTheme.typography.labelSmall, color = OrchTextSecondary)
+            }
+            is ArtifactState.Failed -> Column(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Unable to open ${state.name}", style = MaterialTheme.typography.titleLarge, color = OrchAccentCoral)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(state.message, style = MaterialTheme.typography.bodyMedium, color = OrchTextSecondary)
+            }
+            is ArtifactState.Ready -> {
+                val content = state.content
+                ArtifactHeaderBar(
+                    metadata = state.metadata,
+                    path = state.path,
+                    shareFile = state.file,
+                    copyText = (content as? ArtifactContent.Text)?.text,
+                    onDismiss = onDismiss
+                )
+                when (content) {
+                    is ArtifactContent.Pdf -> PdfRendererContent(content.file)
+                    is ArtifactContent.Docx -> DocxViewerContent(content.document)
+                    is ArtifactContent.Xlsx -> XlsxViewerContent(content.workbook)
+                    is ArtifactContent.Pptx -> PptxViewerContent(content.deck)
+                    is ArtifactContent.Image -> ImageZoomViewerContent(content.dataUrl, state.metadata.name)
+                    is ArtifactContent.Text -> TextViewerContent(content)
                 }
-            }
-            is ArtifactSheetState.Error -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Unable to preview ${state.name}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = OrchAccentCoral
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OrchTextSecondary
-                    )
-                }
-            }
-            is ArtifactSheetState.ReadyPdf -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.pdfFile,
-                    onDismiss = onDismiss
-                )
-                PdfRendererContent(pdfFile = state.pdfFile)
-            }
-            is ArtifactSheetState.ReadyDocx -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.cacheFile,
-                    onDismiss = onDismiss
-                )
-                DocxViewerContent(document = state.document)
-            }
-            is ArtifactSheetState.ReadyXlsx -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.cacheFile,
-                    onDismiss = onDismiss
-                )
-                XlsxViewerContent(workbook = state.workbook)
-            }
-            is ArtifactSheetState.ReadyPptx -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.cacheFile,
-                    onDismiss = onDismiss
-                )
-                PptxViewerContent(deck = state.deck)
-            }
-            is ArtifactSheetState.ReadyImage -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.localFile,
-                    onDismiss = onDismiss
-                )
-                ImageZoomViewerContent(dataUrl = state.dataUrl, title = state.metadata.name)
-            }
-            is ArtifactSheetState.ReadyText -> {
-                ArtifactHeaderBar(
-                    metadata = state.metadata,
-                    path = state.path,
-                    shareFile = state.cacheFile,
-                    onCopyText = state.content,
-                    onDismiss = onDismiss
-                )
-                CodeAndMarkdownContent(
-                    content = state.content,
-                    truncated = state.truncated,
-                    isMarkdown = state.isMarkdown
-                )
             }
         }
     }
@@ -236,40 +167,29 @@ fun ArtifactModalBottomSheet(
 private fun ArtifactHeaderBar(
     metadata: FileMetadata,
     path: String,
-    shareFile: File?,
-    onCopyText: String? = null,
+    shareFile: File,
+    copyText: String?,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val format = remember(metadata) { ArtifactFormat.resolve(metadata.extension, metadata.mime) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Surface(
-                color = Color(format.badgeColorHex).copy(alpha = 0.2f),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.border(
-                    1.dp,
-                    Color(format.badgeColorHex).copy(alpha = 0.55f),
-                    RoundedCornerShape(8.dp)
-                )
-            ) {
-                Text(
-                    text = metadata.extension.uppercase().ifBlank { format.name },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(format.badgeColorHex),
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            if (metadata.extension.isNotBlank()) {
+                Surface(
+                    color = OrchAccentCoral.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.border(1.dp, OrchAccentCoral.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = metadata.extension.trimStart('.').uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OrchAccentCoral,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
             }
-            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = metadata.name,
@@ -286,43 +206,22 @@ private fun ArtifactHeaderBar(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (onCopyText != null) {
-                IconButton(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText(metadata.name, onCopyText))
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.testTag("artifact_copy_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy content",
-                        tint = OrchAccentCoral
-                    )
+            if (copyText != null) {
+                IconButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText(metadata.name, copyText))
+                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(Icons.Default.ContentCopy, "Copy content", tint = OrchTextSecondary)
                 }
             }
-            if (shareFile != null && shareFile.exists()) {
-                IconButton(
-                    onClick = { shareArtifactFile(context, shareFile, metadata.mime) },
-                    modifier = Modifier.testTag("artifact_share_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = "Share or export artifact",
-                        tint = OrchAccentAmber
-                    )
+            if (shareFile.exists()) {
+                IconButton(onClick = { shareArtifactFile(context, shareFile, metadata.mime) }) {
+                    Icon(Icons.Default.Share, "Share", tint = OrchTextSecondary)
                 }
             }
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag("artifact_close_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close viewer",
-                    tint = OrchTextSecondary
-                )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, "Close viewer", tint = OrchTextSecondary)
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -887,71 +786,39 @@ private fun ImageZoomViewerContent(dataUrl: String?, title: String) {
 }
 
 @Composable
-private fun CodeAndMarkdownContent(
-    content: String,
-    truncated: Boolean,
-    isMarkdown: Boolean
-) {
-    val lines = remember(content) { content.lines() }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        if (truncated) {
-            Surface(
-                color = OrchAccentCoral.copy(alpha = 0.16f),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            ) {
-                Text(
-                    text = "Preview truncated (file exceeds 512 KB).",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OrchAccentCoral,
-                    modifier = Modifier.padding(8.dp)
-                )
-            }
+private fun TextViewerContent(content: ArtifactContent.Text) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        if (content.truncated) {
+            Text(
+                text = "Preview truncated at 512 KB.",
+                style = MaterialTheme.typography.labelSmall,
+                color = OrchAccentCoral,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
         }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .background(OrchBackground)
-                .border(1.dp, OrchBorder, RoundedCornerShape(14.dp))
-                .padding(12.dp)
-        ) {
-            itemsIndexed(lines) { idx, line ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 1.5.dp)
-                ) {
-                    if (!isMarkdown) {
+        if (content.markdown) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                ChatMarkdown(content.text)
+            }
+        } else {
+            val lines = remember(content.text) { content.text.lines() }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(OrchSurface)
+                    .padding(12.dp)
+            ) {
+                itemsIndexed(lines) { index, line ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "${idx + 1}".padStart(3, ' '),
+                            text = "${index + 1}",
                             style = MaterialTheme.typography.labelMedium,
                             color = OrchTextSecondary.copy(alpha = 0.55f),
-                            modifier = Modifier.width(38.dp)
+                            modifier = Modifier.width(40.dp)
                         )
+                        Text(line, style = MaterialTheme.typography.labelMedium, color = OrchTextPrimary)
                     }
-                    Text(
-                        text = line,
-                        style = if (isMarkdown && line.startsWith("#")) {
-                            MaterialTheme.typography.titleMedium
-                        } else {
-                            MaterialTheme.typography.bodyMedium
-                        },
-                        fontFamily = if (isMarkdown) MaterialTheme.typography.bodyLarge.fontFamily else JetBrainsMonoFontFamily,
-                        color = when {
-                            line.trimStart().startsWith("#") -> OrchAccentCoral
-                            line.trimStart().startsWith("//") -> OrchAccentAmber
-                            line.contains("pub fn") || line.contains("pub struct") -> OrchAccentAmber
-                            else -> OrchTextPrimary
-                        }
-                    )
                 }
             }
         }
