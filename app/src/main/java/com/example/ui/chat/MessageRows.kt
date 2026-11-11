@@ -194,7 +194,7 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
                 StatusLabel(currentStatus(row.items))
             } else {
                 Text(
-                    text = workSummary(row.durationSec),
+                    text = "Worked",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OrchTextSecondary
                 )
@@ -222,9 +222,6 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
         }
     }
 }
-
-private fun workSummary(durationSec: Int?): String =
-    if (durationSec == null) "Worked" else "Worked for ${formatDuration(durationSec)}"
 
 private fun formatDuration(seconds: Int): String {
     if (seconds < 60) return "${seconds}s"

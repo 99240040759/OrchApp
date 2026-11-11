@@ -13,9 +13,7 @@ data class UserRow(
 data class WorkRow(
     override val key: String,
     val items: List<ChatItem>,
-    val live: Boolean,
-    val startedAt: Long,
-    val durationSec: Int?
+    val live: Boolean
 ) : ChatRow
 
 data class TextRow(
@@ -63,14 +61,7 @@ private fun rowsOf(message: ChatMessage): List<ChatRow> {
             val group = items.subList(start, i).toList()
             val trailing = i == items.size
             val live = message.streaming && trailing
-            val begin = group.first().startedAt
-            val end = if (trailing) message.finishedAt else items[i].startedAt
-            val duration = if (!live && begin > 0 && end > begin) {
-                ((end - begin + 500) / 1000).toInt().coerceAtLeast(1)
-            } else {
-                null
-            }
-            rows += WorkRow("${message.id}:w${group.first().id}", group, live, begin, duration)
+            rows += WorkRow("${message.id}:w${group.first().id}", group, live)
         }
     }
     if (message.streaming && rows.isEmpty()) rows += PendingRow("${message.id}:p")
