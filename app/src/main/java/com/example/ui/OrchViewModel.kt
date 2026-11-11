@@ -92,7 +92,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
 
     private val client = OrchClient()
     private val api = client.api
-    private val stream = OrchStream(client)
+    private val stream = OrchStream(client, application.cacheDir)
     private val preferences = OrchPreferences(application)
     private val artifactLoader = ArtifactLoader(api, application.cacheDir)
     private val resolver = application.contentResolver
@@ -464,6 +464,8 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         if (received) {
             val running = loadSessions()?.firstOrNull { it.id == sessionId }?.running
             if (running == false) {
+                // Never hide a broken live stream: say why the saved result is being shown instead.
+                notice("Live updates were interrupted ($message). Showing the saved result.")
                 openSession(sessionId, force = true)
                 return true
             }

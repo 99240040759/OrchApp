@@ -2,8 +2,6 @@ package com.example.ui.chat
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -11,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +41,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,12 +68,11 @@ import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.launch
 
-/** Space between the end of the response and the input bar while the answer is streaming. */
-private val StreamingBottomGap = 120.dp
-private val IdleBottomGap = 24.dp
+/** Space between the end of the response and the input bar. */
+private val BottomGap = 120.dp
 
 /** Space between a user prompt and the start of its response. */
-private val PromptToReplyGap = 6.dp
+private val PromptToReplyGap = 12.dp
 
 /** Space between consecutive blocks inside one response. */
 private val BlockGap = 10.dp
@@ -212,70 +212,64 @@ private fun MessageList(
     key(chat.sessionId) {
         val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
-        val reversed = remember(chat.rows) { chat.rows.asReversed() }
-        val atBottom by remember {
-            derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
-        }
+        val rows = chat.rows
+        // A tiny last item. Scrolling to it always lands on the very end of the content,
+        // even when the final row is taller than the screen.
+        val endIndex = rows.size
+        val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
 
-        // Whether the user is parked at the newest message. Updated only when a scroll
-        // gesture ends, so rows being inserted can't flip it.
-        val stick = remember { booleanArrayOf(true) }
+        // Whether the user is parked at the end. Only updated when a scroll gesture ends,
+        // so rows being added can't flip it.
+        var stick by remember { mutableStateOf(true) }
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-                if (!scrolling) {
-                    stick[0] = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-                }
+                if (!scrolling) stick = !listState.canScrollForward
             }
         }
 
-        // A keyed, reversed list keeps its anchor on the previously newest row, so a newly
-        // added row would land below the viewport. Follow it when the user is at the bottom,
-        // and always jump to the bottom when a new prompt is sent or a chat is opened.
-        // Prepending older history changes neither key, so reading history is never interrupted.
-        val seen = remember { arrayOfNulls<String>(2) }
-        val newestKey = reversed.firstOrNull()?.key
-        val newestPromptKey = reversed.firstOrNull { it is UserRow }?.key
+        // Sending a prompt (or opening a chat) always goes to the end.
+        val newestPromptKey = rows.lastOrNull { it is UserRow }?.key
+        LaunchedEffect(newestPromptKey) { stick = true }
+
+        // While a reply grows, keep it in view as long as the user hasn't scrolled away.
+        // Rows are compared by value, so prepending older history (which leaves the newest
+        // row unchanged) never moves the list.
+        val last = rows.lastOrNull()
+        val seen = remember { arrayOfNulls<Any>(2) }
         SideEffect {
             val promptChanged = seen[1] != newestPromptKey
-            val rowChanged = seen[0] != newestKey
-            seen[0] = newestKey
+            val lastChanged = seen[0] != last
+            seen[0] = last
             seen[1] = newestPromptKey
-            if (promptChanged || (rowChanged && stick[0])) {
-                listState.requestScrollToItem(0)
-                stick[0] = true
+            if (promptChanged || (lastChanged && stick && !listState.isScrollInProgress)) {
+                listState.requestScrollToItem(endIndex)
             }
         }
 
-        val bottomGap by animateDpAsState(
-            targetValue = if (chat.streaming) StreamingBottomGap else IdleBottomGap,
-            animationSpec = tween(durationMillis = 250),
-            label = "bottomGap"
-        )
-
         Box(modifier = Modifier.fillMaxSize()) {
-            if (reversed.isEmpty()) {
+            if (rows.isEmpty()) {
                 EmptyState(chat, onRetryLoad)
             }
             LazyColumn(
                 state = listState,
-                reverseLayout = true,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomGap),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = BottomGap),
                 modifier = Modifier.fillMaxSize()
             ) {
                 itemsIndexed(
-                    items = reversed,
+                    items = rows,
                     key = { _, row -> row.key },
                     contentType = { _, row -> row::class }
                 ) { index, row ->
-                    Box(modifier = Modifier.padding(top = gapAbove(reversed.getOrNull(index + 1), row))) {
+                    Box(modifier = Modifier.padding(top = gapAbove(rows.getOrNull(index - 1), row))) {
                         ChatRowView(row, onOpenFile, onLoadEarlier)
                     }
                 }
+                item(key = "end") { Spacer(Modifier.height(1.dp)) }
             }
             EdgeFade(top = true, modifier = Modifier.align(Alignment.TopCenter))
             EdgeFade(top = false, modifier = Modifier.align(Alignment.BottomCenter))
             AnimatedVisibility(
-                visible = !atBottom,
+                visible = canScrollDown && !(stick && chat.streaming),
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier
@@ -283,7 +277,10 @@ private fun MessageList(
                     .padding(bottom = 12.dp)
             ) {
                 Surface(
-                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    onClick = {
+                        stick = true
+                        scope.launch { listState.animateScrollToItem(endIndex) }
+                    },
                     shape = CircleShape,
                     color = OrchSurface,
                     border = BorderStroke(1.dp, OrchBorder),

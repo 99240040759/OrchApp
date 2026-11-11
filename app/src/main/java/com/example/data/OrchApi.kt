@@ -169,7 +169,6 @@ class OrchClient {
 
     val sseHttp: OkHttpClient = http.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
     val baseUrl: HttpUrl = (BuildConfig.ORCH_API_BASE_URL.trimEnd('/') + "/").toHttpUrl()
