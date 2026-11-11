@@ -1,0 +1,6 @@
+{
+  "name": "Orch",
+  "description": "Autonomous cloud agent workspace with live session streaming and multi-format artifact preview.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

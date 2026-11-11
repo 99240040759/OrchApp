@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Orch</string>
+    <string name="sign_in_with_google">Continue with Google</string>
+    <string name="firestore_database_id" translatable="false">(default)</string>
+</resources>
