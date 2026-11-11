@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,12 +68,14 @@ fun AttachmentSheet(
     onDisconnectRepo: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
-        Column(modifier = Modifier.imePadding().padding(bottom = 16.dp)) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
             SheetAction(Icons.Outlined.Image, "Photos", "Attach images") {
                 onDismiss()
                 onPickImages()

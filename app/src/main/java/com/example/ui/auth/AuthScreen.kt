@@ -2,7 +2,7 @@ package com.example.ui.auth
 
 import android.app.Activity
 import android.content.Context
-import android.content.MutableContextWrapper
+import android.content.ContextWrapper
 import android.util.Base64
 import android.util.Log
 import androidx.compose.foundation.Image
@@ -82,6 +82,12 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 private fun generateSecureRandomNonce(byteLength: Int = 32): String {
     val randomBytes = ByteArray(byteLength)
     SecureRandom().nextBytes(randomBytes)
@@ -115,14 +121,16 @@ fun launchBottomSheetSignIn(
         onAuthSuccess()
         return
     }
+    val activity = context.findActivity() ?: run {
+        onUnauthenticated()
+        return
+    }
     val clientId = try {
         context.getString(R.string.default_web_client_id)
     } catch (_: Exception) {
         onUnauthenticated()
         return
     }
-
-    val activityContext = (context as? Activity)?.let { MutableContextWrapper(it) } ?: context
 
     scope.launch {
         try {
@@ -137,8 +145,8 @@ fun launchBottomSheetSignIn(
                 .build()
 
             val result = credentialManager.getCredential(
-                request = authorizedRequest,
-                context = activityContext
+                context = activity,
+                request = authorizedRequest
             )
             if (signInFirebaseWithCredentialResponse(result)) {
                 onAuthSuccess()
@@ -147,19 +155,19 @@ fun launchBottomSheetSignIn(
             }
         } catch (_: NoCredentialException) {
             try {
-                val allAccountsBottomSheetOption = GetGoogleIdOption.Builder()
+                val bottomSheetOption = GetGoogleIdOption.Builder()
                     .setFilterByAuthorizedAccounts(false)
                     .setServerClientId(clientId)
                     .setAutoSelectEnabled(false)
                     .setNonce(generateSecureRandomNonce())
                     .build()
                 val bottomSheetRequest = GetCredentialRequest.Builder()
-                    .addCredentialOption(allAccountsBottomSheetOption)
+                    .addCredentialOption(bottomSheetOption)
                     .build()
 
                 val result = credentialManager.getCredential(
-                    request = bottomSheetRequest,
-                    context = activityContext
+                    context = activity,
+                    request = bottomSheetRequest
                 )
                 if (signInFirebaseWithCredentialResponse(result)) {
                     onAuthSuccess()
@@ -190,26 +198,41 @@ fun onGoogleSignInClicked(
         return
     }
 
-    val activity = context as? Activity
+    val activity = context.findActivity()
     if (activity == null) {
         onAuthError("Activity context required for Google Sign-In")
         return
     }
-    val mutableContext = MutableContextWrapper(activity)
+
+    val bottomSheetOption = GetGoogleIdOption.Builder()
+        .setFilterByAuthorizedAccounts(false)
+        .setServerClientId(clientId)
+        .setAutoSelectEnabled(false)
+        .setNonce(generateSecureRandomNonce())
+        .build()
+    val bottomSheetRequest = GetCredentialRequest.Builder()
+        .addCredentialOption(bottomSheetOption)
+        .build()
 
     scope.launch {
         try {
-            val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId)
-                .setNonce(generateSecureRandomNonce())
-                .build()
-            val signInRequest = GetCredentialRequest.Builder()
-                .addCredentialOption(signInOption)
-                .build()
-
-            val result = credentialManager.getCredential(
-                request = signInRequest,
-                context = mutableContext
-            )
+            val result = try {
+                credentialManager.getCredential(
+                    context = activity,
+                    request = bottomSheetRequest
+                )
+            } catch (_: NoCredentialException) {
+                val fallbackOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId)
+                    .setNonce(generateSecureRandomNonce())
+                    .build()
+                val fallbackRequest = GetCredentialRequest.Builder()
+                    .addCredentialOption(fallbackOption)
+                    .build()
+                credentialManager.getCredential(
+                    context = activity,
+                    request = fallbackRequest
+                )
+            }
             if (signInFirebaseWithCredentialResponse(result)) {
                 onAuthSuccess()
             } else {

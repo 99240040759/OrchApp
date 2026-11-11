@@ -11,13 +11,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -59,6 +63,7 @@ import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.launch
 
 private val ResponseGap = 100.dp
+private val ComposerClearance = 112.dp
 
 @Composable
 fun ChatScreen(
@@ -78,39 +83,56 @@ fun ChatScreen(
     onLoadEarlier: () -> Unit,
     transcribe: suspend (String, String) -> String?
 ) {
-    val model = models.firstOrNull { it.id == selectedModelId }
-    val contextRatio = if (model != null && model.contextWindow > 0) {
-        (chat.contextTokens.toFloat() / model.contextWindow).coerceIn(0f, 1f)
-    } else {
-        0f
+    val model = remember(models, selectedModelId) { models.firstOrNull { it.id == selectedModelId } }
+    val contextRatio = remember(chat.contextTokens, model) {
+        if (model != null && model.contextWindow > 0) {
+            (chat.contextTokens.toFloat() / model.contextWindow).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
     }
+    val modelLabel = remember(model) {
+        model?.let { listOfNotNull(it.name, it.badge).joinToString(" · ") } ?: "Model"
+    }
+    val bottomInsets = WindowInsets.navigationBars.union(WindowInsets.ime)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(OrchBackground)
-            .imePadding()
     ) {
         TopBar(title, onMenu, onNewChat)
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            MessageList(chat, onOpenFile, onLoadEarlier)
+            MessageList(
+                chat = chat,
+                bottomInsets = bottomInsets,
+                onOpenFile = onOpenFile,
+                onLoadEarlier = onLoadEarlier
+            )
             EdgeFade(top = true, modifier = Modifier.align(Alignment.TopCenter))
-            EdgeFade(top = false, modifier = Modifier.align(Alignment.BottomCenter))
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(bottomInsets)
+            ) {
+                EdgeFade(top = false, modifier = Modifier.fillMaxWidth())
+                Composer(
+                    placeholder = if (chat.canSend) "Ask anything" else "Connect a GitHub repository to start",
+                    streaming = chat.streaming,
+                    canSend = chat.canSend,
+                    attachments = attachments,
+                    modelLabel = modelLabel,
+                    contextRatio = contextRatio,
+                    onSend = onSend,
+                    onStop = onStop,
+                    onAttach = onAttach,
+                    onPickModel = onPickModel,
+                    onRemoveAttachment = onRemoveAttachment,
+                    transcribe = transcribe
+                )
+            }
         }
-        Composer(
-            placeholder = if (chat.canSend) "Ask anything" else "Connect a GitHub repository to start",
-            streaming = chat.streaming,
-            canSend = chat.canSend,
-            attachments = attachments,
-            modelLabel = model?.let { listOfNotNull(it.name, it.badge).joinToString(" · ") } ?: "Model",
-            contextRatio = contextRatio,
-            onSend = onSend,
-            onStop = onStop,
-            onAttach = onAttach,
-            onPickModel = onPickModel,
-            onRemoveAttachment = onRemoveAttachment,
-            transcribe = transcribe
-        )
     }
 }
 
@@ -144,23 +166,30 @@ private fun TopBar(title: String, onMenu: () -> Unit, onNewChat: () -> Unit) {
 
 @Composable
 private fun EdgeFade(top: Boolean, modifier: Modifier) {
-    val colors = if (top) listOf(OrchBackground, Color.Transparent) else listOf(Color.Transparent, OrchBackground)
+    val colors = remember(top) {
+        if (top) listOf(OrchBackground, Color.Transparent) else listOf(Color.Transparent, OrchBackground)
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(if (top) 16.dp else 22.dp)
+            .height(if (top) 16.dp else 18.dp)
             .background(Brush.verticalGradient(colors))
     )
 }
 
 @Composable
-private fun MessageList(chat: ChatUi, onOpenFile: (String) -> Unit, onLoadEarlier: () -> Unit) {
+private fun MessageList(
+    chat: ChatUi,
+    bottomInsets: WindowInsets,
+    onOpenFile: (String) -> Unit,
+    onLoadEarlier: () -> Unit
+) {
     key(chat.sessionId) {
         val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
         val rows: List<ChatRow> = chat.rows
         val reversed = remember(rows) { rows.asReversed() }
-        val userCount = rows.count { it is UserRow }
+        val userCount = remember(rows) { rows.count { it is UserRow } }
         val atBottom by remember {
             derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
         }
@@ -175,7 +204,12 @@ private fun MessageList(chat: ChatUi, onOpenFile: (String) -> Unit, onLoadEarlie
                 state = listState,
                 reverseLayout = true,
                 verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Top),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = ResponseGap),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = ComposerClearance,
+                    bottom = ResponseGap
+                ),
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(reversed, key = { it.key }, contentType = { it::class }) { row ->
@@ -186,7 +220,10 @@ private fun MessageList(chat: ChatUi, onOpenFile: (String) -> Unit, onLoadEarlie
                 visible = !atBottom,
                 enter = fadeIn(),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(bottomInsets)
+                    .padding(bottom = ComposerClearance)
             ) {
                 Surface(
                     onClick = { scope.launch { listState.animateScrollToItem(0) } },
@@ -209,7 +246,12 @@ private fun MessageList(chat: ChatUi, onOpenFile: (String) -> Unit, onLoadEarlie
 
 @Composable
 private fun EmptyState(chat: ChatUi) {
-    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 32.dp, end = 32.dp, top = 32.dp, bottom = ComposerClearance),
+        contentAlignment = Alignment.Center
+    ) {
         when {
             chat.loading -> CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),

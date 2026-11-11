@@ -272,7 +272,7 @@ private fun ThinkingBlock(item: ReasoningItem) {
                     .heightIn(max = 260.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                ChatMarkdown(item.text.trim(), color = OrchTextSecondary)
+                ChatMarkdown(item.text.trim(), color = OrchTextSecondary, compact = true)
             }
         }
     }

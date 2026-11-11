@@ -1,5 +1,6 @@
 package com.example.chat
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -9,6 +10,7 @@ const val EXECUTE_BASH = "execute_bash"
 
 enum class ToolIcon { Terminal, Search, Globe, Book, Cpu, Stop, Folder, File }
 
+@Immutable
 data class ToolDisplay(
     val label: String,
     val activeLabel: String,

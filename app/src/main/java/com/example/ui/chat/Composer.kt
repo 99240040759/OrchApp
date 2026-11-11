@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -97,14 +98,13 @@ fun Composer(
             .fillMaxWidth()
             .background(OrchBackground)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .navigationBarsPadding()
     ) {
         Surface(
             color = OrchSurface,
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             border = BorderStroke(1.dp, OrchBorder)
         ) {
-            Column(modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 12.dp, bottom = 8.dp)) {
+            Column(modifier = Modifier.padding(start = 18.dp, end = 12.dp, top = 16.dp, bottom = 12.dp)) {
                 if (attachments.isNotEmpty()) {
                     AttachmentStrip(attachments, onRemoveAttachment)
                 }
@@ -115,7 +115,12 @@ fun Composer(
                     lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     decorator = { inner ->
-                        Box {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
                             if (state.text.isEmpty()) {
                                 Text(
                                     text = placeholder,
@@ -133,7 +138,7 @@ fun Composer(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
                 ) {
                     IconButton(onClick = onAttach, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Outlined.Add, "Attach", tint = OrchTextSecondary)

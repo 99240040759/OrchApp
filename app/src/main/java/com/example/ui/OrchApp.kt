@@ -3,10 +3,13 @@ package com.example.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -119,8 +122,7 @@ fun OrchApp(userId: String, userName: String?, userEmail: String?) {
                 hostState = snackbar,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .imePadding()
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(bottom = 96.dp)
             )
         }

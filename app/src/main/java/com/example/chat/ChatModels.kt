@@ -1,24 +1,30 @@
 package com.example.chat
 
+import androidx.compose.runtime.Immutable
+
 enum class Role { User, Assistant }
 
 enum class ToolStatus { Running, Done, Error }
 
+@Immutable
 sealed interface ChatItem {
     val id: String
 }
 
+@Immutable
 data class TextItem(
     override val id: String,
     val text: String
 ) : ChatItem
 
+@Immutable
 data class ReasoningItem(
     override val id: String,
     val text: String,
     val active: Boolean
 ) : ChatItem
 
+@Immutable
 data class ToolItem(
     override val id: String,
     val callId: String,
@@ -27,12 +33,14 @@ data class ToolItem(
     val status: ToolStatus
 ) : ChatItem
 
+@Immutable
 data class UserAttachment(
     val name: String,
     val path: String? = null,
     val dataUrl: String? = null
 )
 
+@Immutable
 data class ChatMessage(
     val id: String,
     val role: Role,
@@ -44,6 +52,7 @@ data class ChatMessage(
     val cancelled: Boolean = false
 )
 
+@Immutable
 data class Repo(
     val workspace: String,
     val repoUrl: String

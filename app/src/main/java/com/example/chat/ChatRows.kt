@@ -1,39 +1,49 @@
 package com.example.chat
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 sealed interface ChatRow {
     val key: String
 }
 
+@Immutable
 data class UserRow(
     override val key: String,
     val text: String,
     val attachments: List<UserAttachment>
 ) : ChatRow
 
+@Immutable
 data class WorkRow(
     override val key: String,
     val items: List<ChatItem>,
     val live: Boolean
 ) : ChatRow
 
+@Immutable
 data class TextRow(
     override val key: String,
     val text: String
 ) : ChatRow
 
+@Immutable
 data class PendingRow(override val key: String) : ChatRow
 
+@Immutable
 data class NoticeRow(
     override val key: String,
     val text: String,
     val isError: Boolean
 ) : ChatRow
 
+@Immutable
 data class CopyRow(
     override val key: String,
     val text: String
 ) : ChatRow
 
+@Immutable
 data class EarlierRow(val loading: Boolean) : ChatRow {
     override val key: String = "earlier"
 }

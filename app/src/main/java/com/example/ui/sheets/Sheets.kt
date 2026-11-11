@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,14 +61,16 @@ fun FilesSheet(
     onDismiss: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(query) { onQuery(query) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
-        Column(modifier = Modifier.imePadding().padding(horizontal = 16.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -126,8 +129,10 @@ fun ModelSheet(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {
@@ -169,8 +174,10 @@ fun AccountSheet(
     onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = OrchBackground,
         contentColor = OrchTextPrimary
     ) {

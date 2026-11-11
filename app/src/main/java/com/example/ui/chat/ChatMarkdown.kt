@@ -3,6 +3,7 @@ package com.example.ui.chat
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,28 +31,83 @@ import com.mikepenz.markdown.model.rememberMarkdownState
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.SyntaxThemes
 
+private val SharedDarkHighlights = Highlights.Builder().theme(SyntaxThemes.default(darkMode = true))
+
+private val SharedMarkdownComponents = markdownComponents(
+    codeFence = {
+        MarkdownHighlightedCodeFence(it.content, it.node, it.typography.code, SharedDarkHighlights, showHeader = true)
+    },
+    codeBlock = {
+        MarkdownHighlightedCodeBlock(it.content, it.node, it.typography.code, SharedDarkHighlights)
+    },
+    checkbox = { MarkdownCheckBox(it.content, it.node, it.typography.text) }
+)
+
+private val SharedLinkStyles = TextLinkStyles(
+    style = SpanStyle(color = OrchAccentCoral, textDecoration = TextDecoration.Underline)
+)
+
+@Immutable
+private data class CachedMarkdownStyles(
+    val h1: TextStyle,
+    val h2: TextStyle,
+    val h3: TextStyle,
+    val h4: TextStyle,
+    val h5: TextStyle,
+    val h6: TextStyle,
+    val body: TextStyle,
+    val mono: TextStyle,
+    val inlineCode: TextStyle,
+    val quote: TextStyle,
+    val table: TextStyle
+)
+
 @Composable
 fun ChatMarkdown(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = OrchTextPrimary
+    color: Color = OrchTextPrimary,
+    compact: Boolean = false
 ) {
     val state = rememberMarkdownState(text, retainState = true)
-    val body = MaterialTheme.typography.bodyLarge.copy(color = color)
-    val heading = { size: Int -> TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = size.sp, lineHeight = (size + 6).sp, color = color) }
-    val mono = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMonoFontFamily, fontSize = 12.5.sp, lineHeight = 18.sp)
+    val baseBodyLarge = MaterialTheme.typography.bodyLarge
+    val baseBodyMedium = MaterialTheme.typography.bodyMedium
+    val baseLabelMedium = MaterialTheme.typography.labelMedium
 
-    val components = remember {
-        markdownComponents(
-            codeFence = {
-                val highlights = remember { Highlights.Builder().theme(SyntaxThemes.default(darkMode = true)) }
-                MarkdownHighlightedCodeFence(it.content, it.node, it.typography.code, highlights, showHeader = true)
-            },
-            codeBlock = {
-                val highlights = remember { Highlights.Builder().theme(SyntaxThemes.default(darkMode = true)) }
-                MarkdownHighlightedCodeBlock(it.content, it.node, it.typography.code, highlights)
-            },
-            checkbox = { MarkdownCheckBox(it.content, it.node, it.typography.text) }
+    val styles = remember(color, compact, baseBodyLarge, baseBodyMedium, baseLabelMedium) {
+        val body = if (compact) {
+            baseBodyMedium.copy(fontSize = 12.5.sp, lineHeight = 18.sp, color = color)
+        } else {
+            baseBodyLarge.copy(color = color)
+        }
+        val heading = { size: Int ->
+            val scaled = if (compact) (size - 4).coerceAtLeast(12) else size
+            TextStyle(
+                fontFamily = SpaceGroteskFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = scaled.sp,
+                lineHeight = (scaled + 5).sp,
+                color = color
+            )
+        }
+        val mono = baseLabelMedium.copy(
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = if (compact) 11.5.sp else 12.5.sp,
+            lineHeight = if (compact) 16.sp else 18.sp,
+            color = color
+        )
+        CachedMarkdownStyles(
+            h1 = heading(22),
+            h2 = heading(20),
+            h3 = heading(18),
+            h4 = heading(16),
+            h5 = heading(15),
+            h6 = heading(14),
+            body = body,
+            mono = mono,
+            inlineCode = body.copy(fontFamily = JetBrainsMonoFontFamily, fontSize = if (compact) 12.sp else 13.5.sp),
+            quote = body.copy(color = color.copy(alpha = 0.75f)),
+            table = body.copy(fontSize = if (compact) 12.sp else 13.sp)
         )
     }
 
@@ -65,26 +121,24 @@ fun ChatMarkdown(
             tableBackground = OrchSurface
         ),
         typography = markdownTypography(
-            h1 = heading(22),
-            h2 = heading(20),
-            h3 = heading(18),
-            h4 = heading(16),
-            h5 = heading(15),
-            h6 = heading(14),
-            text = body,
-            code = mono.copy(color = color),
-            inlineCode = body.copy(fontFamily = JetBrainsMonoFontFamily, fontSize = 13.5.sp),
-            quote = body.copy(color = color.copy(alpha = 0.75f)),
-            paragraph = body,
-            ordered = body,
-            bullet = body,
-            list = body,
-            textLink = TextLinkStyles(
-                style = SpanStyle(color = OrchAccentCoral, textDecoration = TextDecoration.Underline)
-            ),
-            table = body.copy(fontSize = 13.sp)
+            h1 = styles.h1,
+            h2 = styles.h2,
+            h3 = styles.h3,
+            h4 = styles.h4,
+            h5 = styles.h5,
+            h6 = styles.h6,
+            text = styles.body,
+            code = styles.mono,
+            inlineCode = styles.inlineCode,
+            quote = styles.quote,
+            paragraph = styles.body,
+            ordered = styles.body,
+            bullet = styles.body,
+            list = styles.body,
+            textLink = SharedLinkStyles,
+            table = styles.table
         ),
-        components = components,
+        components = SharedMarkdownComponents,
         modifier = modifier.fillMaxWidth()
     )
 }

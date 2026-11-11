@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Base64
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
@@ -58,6 +59,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.math.min
 
+@Immutable
 data class ChatUi(
     val sessionId: String,
     val rows: List<ChatRow> = emptyList(),
@@ -72,6 +74,7 @@ data class ChatUi(
     val canSend: Boolean get() = repo != null || repoLocked
 }
 
+@Immutable
 data class PendingAttachment(
     val uri: Uri,
     val name: String,
@@ -79,6 +82,7 @@ data class PendingAttachment(
     val isImage: Boolean
 )
 
+@Immutable
 data class FilesUi(
     val query: String = "",
     val entries: List<FileEntry> = emptyList(),
