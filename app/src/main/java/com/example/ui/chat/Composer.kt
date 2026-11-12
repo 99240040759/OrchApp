@@ -177,10 +177,9 @@ fun Composer(
                     MicButton(
                         transcribe = transcribe,
                         onText = { text ->
-                            state.edit {
-                                if (length > 0 && !this[length - 1].isWhitespace()) append(' ')
-                                append(text)
-                            }
+                            val current = state.text
+                            val separator = if (current.isNotEmpty() && !current.last().isWhitespace()) " " else ""
+                            state.edit { append(separator + text) }
                         }
                     )
                     SendButton(
