@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -25,7 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -181,7 +178,7 @@ fun Composer(
                         transcribe = transcribe,
                         onText = { text ->
                             state.edit {
-                                if (length > 0) append(' ')
+                                if (length > 0 && !last().isWhitespace()) append(' ')
                                 append(text)
                             }
                         }
@@ -278,7 +275,6 @@ private fun MicButton(transcribe: suspend (String, String) -> String?, onText: (
 
     DisposableEffect(recorder) { onDispose { recorder.cancel() } }
 
-    // A background app cannot record, so end the take instead of capturing silence.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (recording) {
             recorder.cancel()
@@ -297,18 +293,16 @@ private fun MicButton(transcribe: suspend (String, String) -> String?, onText: (
     fun finish() {
         if (!recording) return
         recording = false
-        recorder.stop()
-            .onSuccess { (audio, format) ->
-                scope.launch {
-                    transcribing = true
-                    try {
-                        latestTranscribe(audio, format)?.let(latestOnText)
-                    } finally {
-                        transcribing = false
-                    }
-                }
+        scope.launch {
+            transcribing = true
+            try {
+                recorder.stop()
+                    .onSuccess { (audio, format) -> latestTranscribe(audio, format)?.let(latestOnText) }
+                    .onFailure { Toast.makeText(context, it.message ?: "Recording failed", Toast.LENGTH_SHORT).show() }
+            } finally {
+                transcribing = false
             }
-            .onFailure { Toast.makeText(context, it.message ?: "Recording failed", Toast.LENGTH_SHORT).show() }
+        }
     }
 
     fun begin() {

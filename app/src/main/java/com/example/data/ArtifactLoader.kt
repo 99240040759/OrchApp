@@ -1,6 +1,5 @@
 package com.example.data
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -11,7 +10,6 @@ sealed interface ArtifactContent {
     data class Image(val file: File) : ArtifactContent
     data class Text(val text: String, val truncated: Boolean, val markdown: Boolean) : ArtifactContent
 
-    /** Formats that are not previewed in the app (office documents, archives, media). */
     data object DownloadOnly : ArtifactContent
 }
 
@@ -27,14 +25,12 @@ sealed interface ArtifactState {
 }
 
 class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
-
     private val root = File(cacheDir, "artifacts")
 
     init {
         clear()
     }
 
-    /** Removes every cached file. Called on start and when the owning user session ends. */
     fun clear() {
         root.deleteRecursively()
         root.mkdirs()
@@ -45,11 +41,13 @@ class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
         val extension = metadata.extension.lowercase().trimStart('.')
         val mime = metadata.mime.lowercase()
 
+        target(sessionId, path, metadata.name).delete()
+
         val content: ArtifactContent = when {
             extension in DOWNLOAD_ONLY -> ArtifactContent.DownloadOnly
             extension == "pdf" -> ArtifactContent.Pdf(fetch(sessionId, path, metadata.name))
             mime.startsWith("image/") && !mime.contains("svg") && extension != "svg" ->
-                ArtifactContent.Image(fetchImage(sessionId, path, metadata.name))
+                ArtifactContent.Image(fetch(sessionId, path, metadata.name))
             else -> {
                 val text = api.fileText(sessionId, path)
                 ArtifactContent.Text(text.content, text.truncated, extension == "md" || extension == "markdown")
@@ -58,9 +56,10 @@ class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
         ArtifactState.Ready(metadata, path, content)
     }
 
-    /** Always fetches the complete file, so downloads are never a truncated preview. */
     suspend fun download(sessionId: String, path: String, name: String): File =
-        withContext(Dispatchers.IO) { fetch(sessionId, path, name) }
+        withContext(Dispatchers.IO) {
+            target(sessionId, path, name).takeIf { it.isFile && it.length() > 0 } ?: fetch(sessionId, path, name)
+        }
 
     private fun target(sessionId: String, path: String, name: String): File {
         val folder = UUID.nameUUIDFromBytes("$sessionId|$path".toByteArray()).toString()
@@ -71,18 +70,16 @@ class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
     private suspend fun fetch(sessionId: String, path: String, name: String): File {
         val file = target(sessionId, path, name)
         val partial = File(file.parentFile, file.name + ".part")
-        api.fileBinary(sessionId, path).use { body ->
-            body.byteStream().use { input -> partial.outputStream().use { input.copyTo(it) } }
+        try {
+            api.fileBinary(sessionId, path).use { body ->
+                body.byteStream().use { input -> partial.outputStream().use { input.copyTo(it) } }
+            }
+        } catch (failure: Throwable) {
+            partial.delete()
+            throw failure
         }
         file.delete()
         check(partial.renameTo(file)) { "Unable to store ${file.name}." }
-        return file
-    }
-
-    private suspend fun fetchImage(sessionId: String, path: String, name: String): File {
-        val dataUrl = api.fileImage(sessionId, path).dataUrl
-        val file = target(sessionId, path, name)
-        file.writeBytes(Base64.decode(dataUrl.substringAfter("base64,"), Base64.DEFAULT))
         return file
     }
 

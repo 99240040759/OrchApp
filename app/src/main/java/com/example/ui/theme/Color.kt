@@ -10,6 +10,6 @@ val OrchTextSecondary = Color(0xFFA8A29A)
 val OrchAccentCoral = Color(0xFFF2643D)
 val OrchAccentAmber = Color(0xFFF5A623)
 
-val OrchSurfaceElevated = OrchBorder
+val OrchSurfaceElevated = Color(0xFF2F2C29)
 val OrchAdded = OrchAccentAmber
 val OrchRemoved = OrchAccentCoral

@@ -1,10 +1,8 @@
 package com.example.data
 
-import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-@Immutable
 @Serializable
 data class ModelInfo(
     val id: String,
@@ -13,17 +11,13 @@ data class ModelInfo(
     val badge: String? = null
 )
 
-@Immutable
 @Serializable
 data class Budget(
     val costUsd: Double = 0.0,
     val limitUsd: Double = 0.0,
-    val remaining: Double = 0.0,
-    val resetsOn: String = "",
-    val allowed: Boolean = true
+    val resetsOn: String = ""
 )
 
-@Immutable
 @Serializable
 data class SessionSummary(
     val id: String,
@@ -40,8 +34,7 @@ data class WorkspaceInit(val repoUrl: String)
 @Serializable
 data class Workspace(
     val workspace: String,
-    val repoUrl: String,
-    val repoDir: String
+    val repoUrl: String
 )
 
 @Serializable
@@ -59,7 +52,6 @@ data class CancelRequest(val sessionId: String)
 @Serializable
 data class StoredRecord(
     val seq: Long,
-    val turn: Long,
     val record: JsonObject
 )
 
@@ -70,7 +62,6 @@ data class HistoryPage(
     val earliestSeq: Long? = null
 )
 
-@Immutable
 @Serializable
 data class FileEntry(
     val path: String,
@@ -83,7 +74,6 @@ data class FileContent(
     val truncated: Boolean = false
 )
 
-@Immutable
 @Serializable
 data class FileMetadata(
     val name: String,
@@ -91,9 +81,6 @@ data class FileMetadata(
     val extension: String = "",
     val mime: String = ""
 )
-
-@Serializable
-data class ImageData(val dataUrl: String)
 
 @Serializable
 data class TranscribeRequest(

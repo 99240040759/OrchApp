@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.SessionSummary
@@ -72,7 +74,7 @@ fun SessionsDrawer(
             }
         } else {
             LazyColumn(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.weight(1f)
             ) {
@@ -142,7 +144,7 @@ private fun SessionItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) OrchSurface else androidx.compose.ui.graphics.Color.Transparent)
+            .background(if (selected) OrchSurface else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(start = 12.dp, top = 4.dp, bottom = 4.dp)
     ) {

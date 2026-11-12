@@ -44,12 +44,6 @@ private data class CachedMarkdownStyles(
     val table: TextStyle
 )
 
-/**
- * @param streaming true while the text is still being produced. Finished text is parsed
- * synchronously on first composition so rows never appear empty and then grow, which would
- * shift the list while scrolling. Streaming text is re-parsed in the background and keeps
- * showing the previous result in the meantime.
- */
 @Composable
 fun ChatMarkdown(
     text: String,
@@ -58,7 +52,8 @@ fun ChatMarkdown(
     compact: Boolean = false,
     streaming: Boolean = false
 ) {
-    val state = rememberMarkdownState(text, retainState = true, immediate = !streaming)
+    val immediate = remember { !streaming }
+    val state = rememberMarkdownState(text, retainState = true, immediate = immediate)
     val baseBodyLarge = MaterialTheme.typography.bodyLarge
     val baseBodyMedium = MaterialTheme.typography.bodyMedium
     val baseLabelMedium = MaterialTheme.typography.labelMedium

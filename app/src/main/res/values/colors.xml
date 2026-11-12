@@ -2,10 +2,4 @@
 <resources>
     <color name="ic_launcher_background">#000000</color>
     <color name="orch_background">#11100F</color>
-    <color name="orch_surface">#201E1C</color>
-    <color name="orch_text_primary">#F2EFE9</color>
-    <color name="orch_text_secondary">#A8A29A</color>
-    <color name="orch_accent_coral">#F2643D</color>
-    <color name="orch_accent_amber">#F5A623</color>
-    <color name="orch_border">#2A2724</color>
 </resources>

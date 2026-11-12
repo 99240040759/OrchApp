@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -65,6 +67,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -83,16 +86,14 @@ import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Full-height viewer for a sandbox file: PDFs, images and text are previewed,
- * every other format offers a download. The only actions are Download and Close.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactModalBottomSheet(
@@ -266,26 +267,27 @@ private fun DownloadPanel(title: String, message: String, saving: Boolean, onDow
     }
 }
 
-// region PDF
-
 private sealed interface PdfLoad {
     data object Loading : PdfLoad
     data class Ready(val doc: PdfDoc) : PdfLoad
     data class Failed(val message: String) : PdfLoad
 }
 
-/** A PDF opened once; pages are rendered on demand, one at a time (PdfRenderer allows only one open page). */
 private class PdfDoc(
     private val descriptor: ParcelFileDescriptor,
     private val renderer: PdfRenderer,
-    val sizes: List<IntSize>
+    val pageCount: Int,
+    val defaultSize: IntSize
 ) {
+    val sizes = mutableStateMapOf<Int, IntSize>()
     private val lock = Mutex()
     private var closed = false
 
     suspend fun render(index: Int, widthPx: Int): Bitmap? = lock.withLock {
+        currentCoroutineContext().ensureActive()
         if (closed) return@withLock null
         renderer.openPage(index).use { page ->
+            sizes[index] = IntSize(page.width, page.height.coerceAtLeast(1))
             val ratio = page.height.toFloat() / page.width.toFloat()
             var width = widthPx
             var height = (width * ratio).toInt()
@@ -300,7 +302,6 @@ private class PdfDoc(
         }
     }
 
-    /** Waits for any page still rendering, then releases the file. */
     fun close() {
         CoroutineScope(Dispatchers.IO).launch {
             lock.withLock {
@@ -314,41 +315,69 @@ private class PdfDoc(
     }
 }
 
+private class PdfOwner {
+    private var doc: PdfDoc? = null
+    private var released = false
+
+    fun open(file: File): PdfLoad {
+        val result = openPdf(file)
+        return if (result is PdfLoad.Ready && !adopt(result.doc)) PdfLoad.Loading else result
+    }
+
+    @Synchronized
+    private fun adopt(opened: PdfDoc): Boolean {
+        if (released) {
+            opened.close()
+            return false
+        }
+        doc = opened
+        return true
+    }
+
+    @Synchronized
+    fun release() {
+        released = true
+        doc?.close()
+        doc = null
+    }
+}
+
 private class PageCache : LruCache<Int, ImageBitmap>(PAGE_CACHE_BYTES) {
     override fun sizeOf(key: Int, value: ImageBitmap): Int = value.width * value.height * 4
 }
 
 private fun openPdf(file: File): PdfLoad {
     var descriptor: ParcelFileDescriptor? = null
+    var renderer: PdfRenderer? = null
     return try {
         val opened = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         descriptor = opened
-        val renderer = PdfRenderer(opened)
-        if (renderer.pageCount == 0) {
-            renderer.close()
+        val pdf = PdfRenderer(opened)
+        renderer = pdf
+        if (pdf.pageCount == 0) {
+            pdf.close()
             opened.close()
             return PdfLoad.Failed("This PDF has no pages.")
         }
-        val sizes = List(renderer.pageCount) { index ->
-            renderer.openPage(index).use { IntSize(it.width, it.height.coerceAtLeast(1)) }
-        }
-        PdfLoad.Ready(PdfDoc(opened, renderer, sizes))
-    } catch (_: SecurityException) {
+        val first = pdf.openPage(0).use { IntSize(it.width, it.height.coerceAtLeast(1)) }
+        PdfLoad.Ready(PdfDoc(opened, pdf, pdf.pageCount, first))
+    } catch (failure: Exception) {
+        runCatching { renderer?.close() }
         runCatching { descriptor?.close() }
-        PdfLoad.Failed("This PDF is password protected. Download it to open it elsewhere.")
-    } catch (_: Exception) {
-        runCatching { descriptor?.close() }
-        PdfLoad.Failed("This PDF can't be displayed. Download it to open it elsewhere.")
+        PdfLoad.Failed(
+            if (failure is SecurityException) "This PDF is password protected. Download it to open it elsewhere."
+            else "This PDF can't be displayed. Download it to open it elsewhere."
+        )
     }
 }
 
 @Composable
 private fun PdfViewer(file: File) {
-    val load by produceState<PdfLoad>(PdfLoad.Loading, file) {
-        value = withContext(Dispatchers.IO) { openPdf(file) }
+    val owner = remember(file) { PdfOwner() }
+    DisposableEffect(owner) { onDispose { owner.release() } }
+    val load by produceState<PdfLoad>(PdfLoad.Loading, owner) {
+        value = withContext(Dispatchers.IO) { owner.open(file) }
     }
-    val doc = (load as? PdfLoad.Ready)?.doc
-    DisposableEffect(doc) { onDispose { doc?.close() } }
 
     when (val current = load) {
         PdfLoad.Loading -> CenteredSpinner()
@@ -370,7 +399,7 @@ private fun PdfPages(doc: PdfDoc) {
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(count = doc.sizes.size, key = { it }) { index ->
+            items(count = doc.pageCount, key = { it }) { index ->
                 PdfPage(doc, index, widthPx, cache)
             }
         }
@@ -379,7 +408,7 @@ private fun PdfPages(doc: PdfDoc) {
 
 @Composable
 private fun PdfPage(doc: PdfDoc, index: Int, widthPx: Int, cache: PageCache) {
-    val size = doc.sizes[index]
+    val size = doc.sizes[index] ?: doc.defaultSize
     val bitmap by produceState<ImageBitmap?>(cache.get(index), doc, index, widthPx) {
         if (value == null) {
             val rendered = withContext(Dispatchers.IO) { doc.render(index, widthPx) }
@@ -406,10 +435,6 @@ private fun PdfPage(doc: PdfDoc, index: Int, widthPx: Int, cache: PageCache) {
         }
     }
 }
-
-// endregion
-
-// region Image
 
 @Composable
 private fun ImageViewer(file: File, title: String) {
@@ -441,7 +466,6 @@ private fun ImageViewer(file: File, title: String) {
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { bounds = it }
-            // One finger only pans once zoomed in, so the sheet can still be dragged away.
             .transformable(state = transform, canPan = { scale > 1f })
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = {
@@ -469,10 +493,6 @@ private fun ImageViewer(file: File, title: String) {
         )
     }
 }
-
-// endregion
-
-// region Text
 
 private class CodeLine(val number: Int?, val text: String)
 
@@ -509,7 +529,6 @@ private fun TextViewer(content: ArtifactContent.Text) {
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // Parsed off the main thread: documents can be large.
                 ChatMarkdown(content.text, streaming = true)
             }
         } else {
@@ -528,6 +547,14 @@ private fun CodeView(text: String) {
         CenteredSpinner()
         return
     }
+    val style = MaterialTheme.typography.labelMedium
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val longest = remember(ready) { ready.maxOfOrNull { it.text.length } ?: 0 }
+    val textWidth = remember(style, longest, density) {
+        with(density) { (measurer.measure("0", style).size.width * longest).toDp() + 2.dp }
+    }
+    val horizontal = rememberScrollState()
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(OrchSurface),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -536,24 +563,25 @@ private fun CodeView(text: String) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = line.number?.toString().orEmpty(),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = style,
                     color = OrchTextSecondary.copy(alpha = 0.55f),
                     textAlign = TextAlign.End,
                     modifier = Modifier.width(40.dp)
                 )
                 Spacer(Modifier.width(10.dp))
-                Text(
-                    text = line.text.ifEmpty { " " },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = OrchTextPrimary,
-                    modifier = Modifier.weight(1f)
-                )
+                Box(modifier = Modifier.weight(1f).horizontalScroll(horizontal)) {
+                    Text(
+                        text = line.text.ifEmpty { " " },
+                        style = style,
+                        color = OrchTextPrimary,
+                        softWrap = false,
+                        modifier = Modifier.width(textWidth)
+                    )
+                }
             }
         }
     }
 }
-
-// endregion
 
 private fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"

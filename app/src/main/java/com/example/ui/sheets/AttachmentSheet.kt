@@ -34,7 +34,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +64,7 @@ fun AttachmentSheet(
     onPickFiles: () -> Unit,
     onOpenExplorer: () -> Unit,
     onConnectRepo: (String) -> Unit,
+    onEditRepo: () -> Unit,
     onDisconnectRepo: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -76,24 +76,16 @@ fun AttachmentSheet(
         contentColor = OrchTextPrimary
     ) {
         Column(modifier = Modifier.padding(bottom = 16.dp).imePadding()) {
-            SheetAction(Icons.Outlined.Image, "Photos", "Attach images") {
-                onDismiss()
-                onPickImages()
-            }
-            SheetAction(Icons.Outlined.AttachFile, "Files", "Attach documents and code") {
-                onDismiss()
-                onPickFiles()
-            }
+            SheetAction(Icons.Outlined.Image, "Photos", "Attach images", onClick = onPickImages)
+            SheetAction(Icons.Outlined.AttachFile, "Files", "Attach documents and code", onClick = onPickFiles)
             SheetAction(
                 icon = Icons.Outlined.FolderOpen,
                 title = "File explorer",
                 subtitle = if (chat.repoLocked) "Browse the workspace sandbox" else "Available after the first message",
-                enabled = chat.repoLocked
-            ) {
-                onDismiss()
-                onOpenExplorer()
-            }
-            GitHubSection(chat, onConnectRepo, onDisconnectRepo)
+                enabled = chat.repoLocked,
+                onClick = onOpenExplorer
+            )
+            GitHubSection(chat, onConnectRepo, onEditRepo, onDisconnectRepo)
         }
     }
 }
@@ -134,7 +126,12 @@ private fun IconBadge(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun GitHubSection(chat: ChatUi, onConnect: (String) -> Unit, onDisconnect: () -> Unit) {
+private fun GitHubSection(
+    chat: ChatUi,
+    onConnect: (String) -> Unit,
+    onEdit: () -> Unit,
+    onDisconnect: () -> Unit
+) {
     val repo = chat.repo
     var editing by rememberSaveable { mutableStateOf(false) }
     var input by rememberSaveable { mutableStateOf("") }
@@ -194,7 +191,10 @@ private fun GitHubSection(chat: ChatUi, onConnect: (String) -> Unit, onDisconnec
             val connect = { if (input.isNotBlank()) onConnect(input) }
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = {
+                    input = it
+                    onEdit()
+                },
                 singleLine = true,
                 placeholder = { Text("owner/repo", color = OrchTextSecondary) },
                 isError = chat.repoError != null,

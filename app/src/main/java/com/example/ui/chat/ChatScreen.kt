@@ -2,6 +2,7 @@ package com.example.ui.chat
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -54,8 +56,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.chat.ChatRow
+import com.example.chat.CopyRow
 import com.example.chat.EarlierRow
 import com.example.chat.UserRow
 import com.example.data.ModelInfo
@@ -68,17 +72,14 @@ import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.launch
 
-/** Space between the end of the response and the input bar. */
 private val BottomGap = 120.dp
+private val PromptToReplyGap = 24.dp
+private val BlockGap = 14.dp
+private val CopyGap = 4.dp
+private val TurnGap = 36.dp
+private val SnackbarLift = 64.dp
 
-/** Space between a user prompt and the start of its response. */
-private val PromptToReplyGap = 12.dp
-
-/** Space between consecutive blocks inside one response. */
-private val BlockGap = 10.dp
-
-/** Space between the end of a response and the next prompt. */
-private val TurnGap = 28.dp
+private class ScrollMemory(var lastRow: ChatRow? = null, var promptKey: String? = null)
 
 @Composable
 fun ChatScreen(
@@ -112,9 +113,6 @@ fun ChatScreen(
         model?.let { listOfNotNull(it.name, it.badge).joinToString(" · ") } ?: "Model"
     }
 
-    // Column layout: top bar, list (takes the remaining height), composer.
-    // The composer consumes the navigation bar and keyboard insets, so the list is resized
-    // by the system's animated inset instead of being covered by an overlay.
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -124,6 +122,7 @@ fun ChatScreen(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             MessageList(
                 chat = chat,
+                snackbarVisible = snackbar.currentSnackbarData != null,
                 onOpenFile = onOpenFile,
                 onLoadEarlier = onLoadEarlier,
                 onRetryLoad = onRetryLoad
@@ -133,26 +132,28 @@ fun ChatScreen(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp)
             )
         }
-        Composer(
-            placeholder = when {
-                chat.loading -> "Loading chat…"
-                chat.canSend -> "Ask anything"
-                chat.loadFailed -> "This chat could not be loaded"
-                else -> "Connect a GitHub repository to start"
-            },
-            streaming = chat.streaming,
-            canSend = chat.canSend && !chat.loading,
-            attachments = attachments,
-            modelLabel = modelLabel,
-            contextRatio = contextRatio,
-            onSend = onSend,
-            onStop = onStop,
-            onAttach = onAttach,
-            onPickModel = onPickModel,
-            onRemoveAttachment = onRemoveAttachment,
-            transcribe = transcribe,
-            modifier = Modifier.navigationBarsPadding().imePadding()
-        )
+        key(chat.sessionId) {
+            Composer(
+                placeholder = when {
+                    chat.loading -> "Loading chat…"
+                    chat.canSend -> "Ask anything"
+                    chat.loadFailed -> "This chat could not be loaded"
+                    else -> "Connect a GitHub repository to start"
+                },
+                streaming = chat.streaming,
+                canSend = chat.canSend && !chat.loading,
+                attachments = attachments,
+                modelLabel = modelLabel,
+                contextRatio = contextRatio,
+                onSend = onSend,
+                onStop = onStop,
+                onAttach = onAttach,
+                onPickModel = onPickModel,
+                onRemoveAttachment = onRemoveAttachment,
+                transcribe = transcribe,
+                modifier = Modifier.navigationBarsPadding().imePadding()
+            )
+        }
     }
 }
 
@@ -196,6 +197,7 @@ private fun EdgeFade(top: Boolean, modifier: Modifier) {
 private fun gapAbove(above: ChatRow?, row: ChatRow): Dp = when {
     above == null -> 0.dp
     above is EarlierRow || row is EarlierRow -> 12.dp
+    row is CopyRow -> CopyGap
     row is UserRow && above !is UserRow -> TurnGap
     row is UserRow -> BlockGap
     above is UserRow -> PromptToReplyGap
@@ -205,6 +207,7 @@ private fun gapAbove(above: ChatRow?, row: ChatRow): Dp = when {
 @Composable
 private fun MessageList(
     chat: ChatUi,
+    snackbarVisible: Boolean,
     onOpenFile: (String) -> Unit,
     onLoadEarlier: () -> Unit,
     onRetryLoad: () -> Unit
@@ -213,13 +216,9 @@ private fun MessageList(
         val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
         val rows = chat.rows
-        // A tiny last item. Scrolling to it always lands on the very end of the content,
-        // even when the final row is taller than the screen.
         val endIndex = rows.size
         val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
 
-        // Whether the user is parked at the end. Only updated when a scroll gesture ends,
-        // so rows being added can't flip it.
         var stick by remember { mutableStateOf(true) }
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
@@ -227,20 +226,17 @@ private fun MessageList(
             }
         }
 
-        // Sending a prompt (or opening a chat) always goes to the end.
         val newestPromptKey = rows.lastOrNull { it is UserRow }?.key
         LaunchedEffect(newestPromptKey) { stick = true }
 
-        // While a reply grows, keep it in view as long as the user hasn't scrolled away.
-        // Rows are compared by value, so prepending older history (which leaves the newest
-        // row unchanged) never moves the list.
         val last = rows.lastOrNull()
-        val seen = remember { arrayOfNulls<Any>(2) }
+        val memory = remember { ScrollMemory() }
+        val lift by animateDpAsState(if (snackbarVisible) SnackbarLift else 0.dp, label = "snackbarLift")
         SideEffect {
-            val promptChanged = seen[1] != newestPromptKey
-            val lastChanged = seen[0] != last
-            seen[0] = last
-            seen[1] = newestPromptKey
+            val promptChanged = memory.promptKey != newestPromptKey
+            val lastChanged = memory.lastRow != last
+            memory.lastRow = last
+            memory.promptKey = newestPromptKey
             if (promptChanged || (lastChanged && stick && !listState.isScrollInProgress)) {
                 listState.requestScrollToItem(endIndex)
             }
@@ -274,6 +270,7 @@ private fun MessageList(
                 exit = fadeOut(),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .offset { IntOffset(0, -lift.roundToPx()) }
                     .padding(bottom = 12.dp)
             ) {
                 Surface(

@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,7 +56,8 @@ private fun AppRoot(auth: FirebaseAuth = Firebase.auth) {
     val updates: UpdateViewModel = viewModel()
     val update by updates.dialog.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_START) { updates.check() }
-    val user by auth.authState().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val authState = remember(auth) { auth.authState() }
+    val user by authState.collectAsStateWithLifecycle(initialValue = auth.currentUser)
     val current = user
     if (current == null) {
         LaunchedEffect(Unit) { userScope.reset() }
