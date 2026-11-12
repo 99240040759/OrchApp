@@ -3,7 +3,6 @@ package com.example.ui.auth
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.util.Base64
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -55,6 +54,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
+import androidx.credentials.CredentialOption
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
@@ -82,6 +82,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
+import kotlin.io.encoding.Base64
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -89,170 +90,50 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun generateSecureRandomNonce(byteLength: Int = 32): String {
-    val randomBytes = ByteArray(byteLength)
-    SecureRandom().nextBytes(randomBytes)
-    return Base64.encodeToString(
-        randomBytes,
-        Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING
-    )
+private fun newNonce(): String {
+    val bytes = ByteArray(32)
+    SecureRandom().nextBytes(bytes)
+    return Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(bytes)
 }
 
-private suspend fun signInFirebaseWithCredentialResponse(
-    result: GetCredentialResponse
-): Boolean {
-    val credential = result.credential
-    if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-        val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-        val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-        Firebase.auth.signInWithCredential(authCredential).await()
-        return true
-    }
-    return false
-}
-
-fun launchBottomSheetSignIn(
-    context: Context,
-    credentialManager: CredentialManager,
-    onAuthSuccess: () -> Unit,
-    onUnauthenticated: () -> Unit,
-    scope: CoroutineScope
-) {
-    if (Firebase.auth.currentUser != null) {
-        onAuthSuccess()
-        return
-    }
-    val activity = context.findActivity() ?: run {
-        onUnauthenticated()
-        return
-    }
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onUnauthenticated()
-        return
-    }
-
-    scope.launch {
-        try {
-            val authorizedOption = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(true)
-                .setServerClientId(clientId)
-                .setAutoSelectEnabled(true)
-                .setNonce(generateSecureRandomNonce())
-                .build()
-            val authorizedRequest = GetCredentialRequest.Builder()
-                .addCredentialOption(authorizedOption)
-                .build()
-
-            val result = credentialManager.getCredential(
-                context = activity,
-                request = authorizedRequest
-            )
-            if (signInFirebaseWithCredentialResponse(result)) {
-                onAuthSuccess()
-            } else {
-                onUnauthenticated()
-            }
-        } catch (_: NoCredentialException) {
-            try {
-                val bottomSheetOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(clientId)
-                    .setAutoSelectEnabled(false)
-                    .setNonce(generateSecureRandomNonce())
-                    .build()
-                val bottomSheetRequest = GetCredentialRequest.Builder()
-                    .addCredentialOption(bottomSheetOption)
-                    .build()
-
-                val result = credentialManager.getCredential(
-                    context = activity,
-                    request = bottomSheetRequest
-                )
-                if (signInFirebaseWithCredentialResponse(result)) {
-                    onAuthSuccess()
-                } else {
-                    onUnauthenticated()
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                onUnauthenticated()
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            onUnauthenticated()
-        }
-    }
-}
-
-fun onGoogleSignInClicked(
-    context: Context,
-    credentialManager: CredentialManager,
-    onAuthSuccess: () -> Unit,
-    onAuthError: (String) -> Unit,
-    scope: CoroutineScope,
-    onAuthCancelled: () -> Unit = {}
-) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onAuthError("Sign-in configuration unavailable.")
-        return
-    }
-
-    val activity = context.findActivity()
-    if (activity == null) {
-        onAuthError("Activity context required for Google Sign-In")
-        return
-    }
-
-    val bottomSheetOption = GetGoogleIdOption.Builder()
-        .setFilterByAuthorizedAccounts(false)
+private fun googleIdOption(clientId: String, authorizedOnly: Boolean): CredentialOption =
+    GetGoogleIdOption.Builder()
+        .setFilterByAuthorizedAccounts(authorizedOnly)
         .setServerClientId(clientId)
-        .setAutoSelectEnabled(false)
-        .setNonce(generateSecureRandomNonce())
-        .build()
-    val bottomSheetRequest = GetCredentialRequest.Builder()
-        .addCredentialOption(bottomSheetOption)
+        .setAutoSelectEnabled(authorizedOnly)
+        .setNonce(newNonce())
         .build()
 
-    scope.launch {
+private suspend fun CredentialManager.firstAvailable(
+    activity: Activity,
+    options: List<CredentialOption>
+): GetCredentialResponse {
+    for (option in options.dropLast(1)) {
         try {
-            val result = try {
-                credentialManager.getCredential(
-                    context = activity,
-                    request = bottomSheetRequest
-                )
-            } catch (_: NoCredentialException) {
-                val fallbackOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId)
-                    .setNonce(generateSecureRandomNonce())
-                    .build()
-                val fallbackRequest = GetCredentialRequest.Builder()
-                    .addCredentialOption(fallbackOption)
-                    .build()
-                credentialManager.getCredential(
-                    context = activity,
-                    request = fallbackRequest
-                )
-            }
-            if (signInFirebaseWithCredentialResponse(result)) {
-                onAuthSuccess()
-            } else {
-                onAuthError("Unsupported credential type.")
-            }
-        } catch (e: GetCredentialCancellationException) {
-            Log.w("Auth", "Google Sign-In cancelled: ${e.message}", e)
-            onAuthCancelled()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Unable to sign in.")
+            return getCredential(activity, GetCredentialRequest.Builder().addCredentialOption(option).build())
+        } catch (_: NoCredentialException) {
         }
     }
+    return getCredential(activity, GetCredentialRequest.Builder().addCredentialOption(options.last()).build())
+}
+
+private suspend fun signInWithGoogle(context: Context, credentialManager: CredentialManager, silent: Boolean) {
+    val activity = checkNotNull(context.findActivity()) { "Activity context required for Google Sign-In" }
+    val clientId = context.getString(R.string.default_web_client_id)
+    val options = if (silent) {
+        listOf(googleIdOption(clientId, authorizedOnly = true), googleIdOption(clientId, authorizedOnly = false))
+    } else {
+        listOf(
+            googleIdOption(clientId, authorizedOnly = false),
+            GetSignInWithGoogleOption.Builder(serverClientId = clientId).setNonce(newNonce()).build()
+        )
+    }
+    val credential = credentialManager.firstAvailable(activity, options).credential
+    require(credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+        "Unsupported credential type."
+    }
+    val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
+    Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await()
 }
 
 fun signOutUser(
@@ -291,16 +172,15 @@ fun AuthScreen(
     LaunchedEffect(Unit) {
         if (!autoPrompt) return@LaunchedEffect
         isLoading = true
-        launchBottomSheetSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {
-                isLoading = false
-                onAuthSuccess()
-            },
-            onUnauthenticated = { isLoading = false },
-            scope = scope
-        )
+        try {
+            signInWithGoogle(context, credentialManager, silent = true)
+            onAuthSuccess()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+        } finally {
+            isLoading = false
+        }
     }
 
     Column(
@@ -354,7 +234,7 @@ fun AuthScreen(
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
         ) {
-            if (errorMessage != null) {
+            errorMessage?.let { message ->
                 Surface(
                     color = OrchSurface,
                     shape = RoundedCornerShape(14.dp),
@@ -363,7 +243,7 @@ fun AuthScreen(
                         .border(1.dp, OrchAccentCoral, RoundedCornerShape(14.dp))
                 ) {
                     Text(
-                        text = errorMessage!!,
+                        text = message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = OrchAccentCoral,
                         modifier = Modifier.padding(14.dp)
@@ -376,22 +256,20 @@ fun AuthScreen(
                 onClick = {
                     errorMessage = null
                     isLoading = true
-                    onGoogleSignInClicked(
-                        context = context,
-                        credentialManager = credentialManager,
-                        onAuthSuccess = {
-                            isLoading = false
+                    scope.launch {
+                        try {
+                            signInWithGoogle(context, credentialManager, silent = false)
                             onAuthSuccess()
-                        },
-                        onAuthError = { msg ->
-                            isLoading = false
-                            errorMessage = msg
-                        },
-                        scope = scope,
-                        onAuthCancelled = {
+                        } catch (_: GetCredentialCancellationException) {
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            Log.e("Auth", "Google Sign-In failed", failure)
+                            errorMessage = failure.localizedMessage ?: "Unable to sign in."
+                        } finally {
                             isLoading = false
                         }
-                    )
+                    }
                 },
                 enabled = !isLoading,
                 shape = RoundedCornerShape(16.dp),

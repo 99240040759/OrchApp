@@ -7,9 +7,9 @@ import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Authenticator
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -38,7 +38,6 @@ val OrchJson = Json {
     coerceInputValues = true
 }
 
-/** Like [runCatching], but never swallows coroutine cancellation. */
 inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
     Result.success(block())
 } catch (cancelled: CancellationException) {
@@ -92,12 +91,6 @@ interface OrchApi {
         @Query("path") path: String
     ): FileContent
 
-    @GET("cloud/files/image")
-    suspend fun fileImage(
-        @Query("sessionId") sessionId: String,
-        @Query("path") path: String
-    ): ImageData
-
     @Streaming
     @GET("cloud/files/binary")
     suspend fun fileBinary(
@@ -111,7 +104,6 @@ interface OrchApi {
 
 class ApiError(
     val status: Int,
-    val code: String?,
     override val message: String
 ) : IOException(message) {
     val retryable: Boolean
@@ -121,25 +113,32 @@ class ApiError(
 fun Throwable.toApiError(): ApiError = when (this) {
     is ApiError -> this
     is HttpException -> {
-        val body = response()?.errorBody()?.string().orEmpty()
+        val body = runCatching { response()?.errorBody()?.string() }.getOrNull().orEmpty()
         parseErrorBody(code(), body)
     }
-    is UnknownHostException -> ApiError(0, "NETWORK", "No internet connection.")
-    is IOException -> ApiError(0, "NETWORK", message ?: "Connection lost.")
-    else -> ApiError(-1, null, message ?: "Something went wrong.")
+    is UnknownHostException -> ApiError(0, "No internet connection.")
+    is IOException -> ApiError(0, message ?: "Connection lost.")
+    else -> ApiError(-1, message ?: "Something went wrong.")
 }
 
 fun parseErrorBody(status: Int, body: String): ApiError {
     val root: JsonObject? = runCatching { OrchJson.parseToJsonElement(body).jsonObject }.getOrNull()
-    val message = root?.get("error")?.jsonPrimitive?.contentOrNull
-    val code = root?.get("code")?.jsonPrimitive?.contentOrNull
-    return ApiError(status, code, message ?: "Request failed (HTTP $status).")
+    val message = when (val error = root?.get("error")) {
+        is JsonObject -> (error["message"] as? JsonPrimitive)?.contentOrNull
+        is JsonPrimitive -> error.contentOrNull
+        else -> null
+    }
+    return ApiError(status, message ?: "Request failed (HTTP $status).")
 }
 
 private const val RETRY_HEADER = "X-Auth-Retry"
+private const val TOKEN_TIMEOUT_SECONDS = 10L
+private val refreshLock = Any()
 
 private fun idToken(forceRefresh: Boolean): String? =
-    Firebase.auth.currentUser?.let { Tasks.await(it.getIdToken(forceRefresh)).token }
+    Firebase.auth.currentUser?.let {
+        Tasks.await(it.getIdToken(forceRefresh), TOKEN_TIMEOUT_SECONDS, TimeUnit.SECONDS).token
+    }
 
 private val authInterceptor = Interceptor { chain ->
     val token = runCatching { idToken(false) }.getOrNull()
@@ -151,7 +150,10 @@ private val authInterceptor = Interceptor { chain ->
 
 private val tokenAuthenticator = Authenticator { _, response: Response ->
     if (response.request.header(RETRY_HEADER) != null) return@Authenticator null
-    val token = runCatching { idToken(true) }.getOrNull() ?: return@Authenticator null
+    val rejected = response.request.header("Authorization")?.removePrefix("Bearer ")
+    val token = synchronized(refreshLock) {
+        runCatching { idToken(false)?.takeIf { it != rejected } ?: idToken(true) }.getOrNull()
+    } ?: return@Authenticator null
     response.request.newBuilder()
         .header("Authorization", "Bearer $token")
         .header(RETRY_HEADER, "1")

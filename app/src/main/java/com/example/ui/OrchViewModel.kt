@@ -2,7 +2,6 @@ package com.example.ui
 
 import android.app.Application
 import android.net.Uri
-import android.os.SystemClock
 import android.provider.OpenableColumns
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
@@ -33,9 +32,6 @@ import com.example.data.TranscribeRequest
 import com.example.data.WorkspaceInit
 import com.example.data.runCatchingSuspend
 import com.example.data.toApiError
-import com.google.firebase.Firebase
-import com.google.firebase.firestore.firestore
-import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,7 +44,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -82,21 +77,18 @@ data class PendingAttachment(
 
 @Immutable
 data class FilesUi(
-    val query: String = "",
     val entries: List<FileEntry> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null
 )
 
 class OrchViewModel(application: Application) : AndroidViewModel(application) {
-
     private val client = OrchClient()
     private val api = client.api
     private val stream = OrchStream(client, application.cacheDir)
     private val preferences = OrchPreferences(application)
     private val artifactLoader = ArtifactLoader(api, application.cacheDir)
     private val resolver = application.contentResolver
-    private val firestore = Firebase.firestore
     private val reducer = ChatReducer()
 
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
@@ -138,16 +130,15 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     private var historyJob: Job? = null
     private var artifactJob: Job? = null
     private var modelsJob: Job? = null
-    private var publishPending = false
-    private var lastPublish = 0L
+    private var publishJob: Job? = null
     private var earliestSeq: Long? = null
     private var hasMore = false
     private var loadingEarlier = false
+    private var earlierFailed = false
     private var pagingGeneration = 0
     private val deleting = HashSet<String>()
 
     init {
-        // Sessions and budget are loaded by onForeground(), which runs on first start.
         loadModels(reportFailure = true)
     }
 
@@ -197,10 +188,6 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         return remote
     }
 
-    fun refreshSessions() {
-        viewModelScope.launch { loadSessions() }
-    }
-
     fun refreshBudget() {
         viewModelScope.launch { runCatchingSuspend { api.budget() }.onSuccess { _budget.value = it } }
     }
@@ -241,7 +228,6 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
             repo = Repo.fromWorkspacePath(summary?.workspacePath),
             contextTokens = summary?.contextTokens ?: 0
         )
-        watchTitle(id)
         historyJob = viewModelScope.launch {
             val history = async { runCatchingSuspend { api.history(id, HISTORY_LIMIT, null) } }
             val list = async { loadSessions() }
@@ -270,6 +256,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         val id = _chat.value.sessionId
         if (loadingEarlier || reducer.streaming || !hasMore) return
         loadingEarlier = true
+        earlierFailed = false
         val generation = pagingGeneration
         publishNow()
         viewModelScope.launch {
@@ -281,7 +268,10 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                     earliestSeq = page.earliestSeq
                     hasMore = page.hasMore
                 }
-                .onFailure(::report)
+                .onFailure {
+                    earlierFailed = true
+                    report(it)
+                }
             loadingEarlier = false
             publishNow()
         }
@@ -289,14 +279,15 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteSession(id: String) {
         deleting += id
+        _sessions.update { list -> list.filterNot { it.id == id } }
+        if (_chat.value.sessionId == id) newChat()
         viewModelScope.launch {
-            runCatchingSuspend { api.deleteSession(id) }
-                .onSuccess {
-                    _sessions.update { list -> list.filterNot { it.id == id } }
-                    if (_chat.value.sessionId == id) newChat()
-                }
-                .onFailure(::report)
+            val result = runCatchingSuspend { api.deleteSession(id) }
             deleting -= id
+            result.onFailure {
+                report(it)
+                loadSessions()
+            }
         }
     }
 
@@ -322,25 +313,32 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearRepoError() {
+        _chat.update { if (it.repoError == null) it else it.copy(repoError = null) }
+    }
+
     fun disconnectRepo() {
         if (_chat.value.repoLocked) return
         _chat.update { it.copy(repo = null, repoError = null) }
     }
 
     fun addAttachments(uris: List<Uri>) {
-        val current = _attachments.value
-        val fresh = uris.distinct().filter { uri -> current.none { it.uri == uri } }
-        val described = fresh.map { describe(it) }
-        val unreadable = described.count { it == null }
-        if (unreadable > 0) {
-            notice(if (unreadable == 1) "Couldn't read that file." else "Couldn't read $unreadable files.")
+        viewModelScope.launch {
+            val known = _attachments.value.mapTo(HashSet()) { it.uri }
+            val fresh = uris.distinct().filter { it !in known }
+            val described = withContext(Dispatchers.IO) { fresh.map(::describe) }
+            val unreadable = described.count { it == null }
+            if (unreadable > 0) {
+                notice(if (unreadable == 1) "Couldn't read that file." else "Couldn't read $unreadable files.")
+            }
+            val current = _attachments.value
+            val added = described.filterNotNull().filter { item -> current.none { it.uri == item.uri } }
+            if (current.sumOf { it.size } + added.sumOf { it.size } > MAX_ATTACHMENT_BYTES) {
+                notice("Attachments cannot exceed 18 MB.")
+                return@launch
+            }
+            _attachments.value = current + added
         }
-        val added = described.filterNotNull()
-        if (current.sumOf { it.size } + added.sumOf { it.size } > MAX_ATTACHMENT_BYTES) {
-            notice("Attachments cannot exceed 18 MB.")
-            return
-        }
-        _attachments.value = current + added
     }
 
     fun removeAttachment(uri: Uri) {
@@ -362,7 +360,6 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         PendingAttachment(uri, name, size.coerceAtLeast(0), resolver.getType(uri)?.startsWith("image/") == true)
     }.getOrNull()
 
-    /** Returns true when the message was accepted and the composer can clear its text. */
     fun send(text: String): Boolean {
         val ui = _chat.value
         val prompt = text.trim()
@@ -376,7 +373,10 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         }
         val id = ui.sessionId
         val sources = pending.map { item -> AttachmentSource(item.name) { resolver.openInputStream(item.uri) } }
-        reducer.beginTurn(prompt, pending.map { UserAttachment(name = it.name) })
+        reducer.beginTurn(
+            prompt,
+            pending.map { UserAttachment(name = it.name, previewUri = if (it.isImage) it.uri.toString() else null) }
+        )
         _attachments.value = emptyList()
         publishNow()
         runStream(id, canRetryFirst = false) { lastId, retry ->
@@ -450,21 +450,15 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
             if (reloaded) return@launch
             publishNow()
             markIdle(sessionId)
-            refreshSessions()
             refreshBudget()
+            trackTitle(sessionId)
         }
     }
 
-    /**
-     * When the stream is lost after output was already received, the run may have finished
-     * on the server. Trust the server's state over the local guess.
-     * Returns true when the session was reloaded from history.
-     */
     private suspend fun recoverAfterLoss(sessionId: String, received: Boolean, message: String): Boolean {
         if (received) {
             val running = loadSessions()?.firstOrNull { it.id == sessionId }?.running
             if (running == false) {
-                // Never hide a broken live stream: say why the saved result is being shown instead.
                 notice("Live updates were interrupted ($message). Showing the saved result.")
                 openSession(sessionId, force = true)
                 return true
@@ -491,18 +485,16 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
             )
             _sessions.update { listOf(placeholder) + it }
         }
-        if (titleJob?.isActive != true) watchTitle(sessionId)
     }
 
-    private fun watchTitle(sessionId: String) {
+    private fun trackTitle(sessionId: String) {
         titleJob?.cancel()
         titleJob = viewModelScope.launch {
-            firestore.collection("orch_cloud_sessions").document(sessionId).snapshots()
-                .catch { }
-                .collect { doc ->
-                    val title = doc.getString("title")?.takeIf { it.isNotBlank() } ?: return@collect
-                    _sessions.update { list -> list.map { if (it.id == sessionId) it.copy(title = title) else it } }
-                }
+            repeat(TITLE_ATTEMPTS) {
+                val title = loadSessions()?.firstOrNull { it.id == sessionId }?.title
+                if (!title.isNullOrBlank()) return@launch
+                delay(TITLE_RETRY_MS)
+            }
         }
     }
 
@@ -512,7 +504,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         historyJob?.cancel()
         filesJob?.cancel()
         artifactJob?.cancel()
-        publishPending = false
+        publishJob?.cancel()
         _files.value = FilesUi()
         _artifact.value = ArtifactState.Hidden
     }
@@ -522,22 +514,25 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         earliestSeq = null
         hasMore = false
         loadingEarlier = false
+        earlierFailed = false
     }
 
     private fun publishSoon() {
-        if (publishPending) return
-        publishPending = true
-        viewModelScope.launch {
-            delay((PUBLISH_INTERVAL_MS - (SystemClock.uptimeMillis() - lastPublish)).coerceAtLeast(0))
-            publishNow()
+        if (publishJob?.isActive == true) return
+        publishJob = viewModelScope.launch {
+            delay(PUBLISH_INTERVAL_MS)
+            publish()
         }
     }
 
     private fun publishNow() {
-        publishPending = false
-        lastPublish = SystemClock.uptimeMillis()
+        publishJob?.cancel()
+        publish()
+    }
+
+    private fun publish() {
         val rows = buildList {
-            if (hasMore) add(EarlierRow(loadingEarlier))
+            if (hasMore) add(EarlierRow(loadingEarlier, earlierFailed))
             addAll(buildRows(reducer.messages))
         }
         _chat.update {
@@ -554,7 +549,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         val id = _chat.value.sessionId
         filesJob?.cancel()
         filesJob = viewModelScope.launch {
-            _files.update { it.copy(query = query, loading = true, error = null) }
+            _files.update { it.copy(loading = true, error = null) }
             if (query.isNotBlank()) delay(250)
             runCatchingSuspend { api.files(id, query.ifBlank { null }, FILE_LIST_LIMIT) }
                 .onSuccess { entries -> _files.update { it.copy(entries = entries, loading = false, error = null) } }
@@ -585,7 +580,6 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         _artifact.value = ArtifactState.Hidden
     }
 
-    /** Copies the complete file into the document the user picked with the system save dialog. */
     fun saveArtifact(destination: Uri) {
         val (path, name) = when (val state = _artifact.value) {
             is ArtifactState.Ready -> state.path to state.metadata.name
@@ -600,7 +594,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     val file = artifactLoader.download(id, path, name)
                     val output = resolver.openOutputStream(destination, "wt")
-                        ?: throw ApiError(-1, null, "Unable to write the file.")
+                        ?: throw ApiError(-1, "Unable to write the file.")
                     output.use { sink -> file.inputStream().use { it.copyTo(sink) } }
                 }
                 "Saved $name"
@@ -632,6 +626,8 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         private const val HISTORY_LIMIT = 200
         private const val PUBLISH_INTERVAL_MS = 80L
         private const val MAX_RETRIES = 6
+        private const val TITLE_ATTEMPTS = 5
+        private const val TITLE_RETRY_MS = 2000L
         private const val MAX_ATTACHMENT_BYTES = 18L * 1024 * 1024
         private const val FILE_LIST_LIMIT = 500
 

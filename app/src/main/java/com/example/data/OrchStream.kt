@@ -40,24 +40,16 @@ data class SseFrame(
     val data: JsonObject
 )
 
-/** A file that is read lazily when the request body is built. */
 class AttachmentSource(val name: String, val open: () -> InputStream?)
 
 class OrchStream(private val client: OrchClient, cacheDir: File) {
-
     private val uploads = File(cacheDir, "upload")
 
     init {
-        // Leftovers from a run that was killed before it could clean up.
         uploads.deleteRecursively()
         uploads.mkdirs()
     }
 
-    /**
-     * Without attachments this is exactly the request the app always sent: a fixed-length
-     * JSON body. With attachments the body is first written to a temp file (Base64 streamed
-     * from each source, so memory stays flat) and then sent with a normal Content-Length.
-     */
     fun chat(request: ChatRequest, attachments: List<AttachmentSource>): Flow<SseFrame> = flow {
         val head = OrchJson.encodeToString(request)
         if (attachments.isEmpty()) {
@@ -111,7 +103,7 @@ class OrchStream(private val client: OrchClient, cacheDir: File) {
                     val failure = if (response != null && !response.isSuccessful) {
                         parseErrorBody(response.code, response.body?.string().orEmpty())
                     } else {
-                        t?.toApiError() ?: ApiError(0, null, "Connection lost.")
+                        t?.toApiError() ?: ApiError(0, "Connection lost.")
                     }
                     close(failure)
                 }
@@ -120,7 +112,6 @@ class OrchStream(private val client: OrchClient, cacheDir: File) {
         awaitClose { source.cancel() }
     }.buffer(Channel.UNLIMITED)
 
-    /** Same JSON as encoding the attachments up front, written to disk one Base64 chunk at a time. */
     private fun writePayload(head: String, attachments: List<AttachmentSource>): File {
         val file = File(uploads, "${UUID.randomUUID()}.json")
         try {

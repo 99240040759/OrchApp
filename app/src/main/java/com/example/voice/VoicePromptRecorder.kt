@@ -3,14 +3,16 @@ package com.example.voice
 import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
-import android.util.Base64
+import com.example.data.runCatchingSuspend
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.io.encoding.Base64
 
 class VoicePromptRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var output: File? = null
 
-    /** Starts recording. [onLimit] fires on the main thread when [MAX_DURATION_MS] is reached. */
     fun start(onLimit: () -> Unit): Result<File> = runCatching {
         cancel()
         val file = File(File(context.cacheDir, "voice").apply { mkdirs() }, "prompt_${System.currentTimeMillis()}.m4a")
@@ -45,26 +47,32 @@ class VoicePromptRecorder(private val context: Context) {
         file
     }
 
-    fun stop(): Result<Pair<String, String>> = runCatching {
-        val media = checkNotNull(recorder) { "No active recording" }
-        val file = checkNotNull(output) { "Recording file missing" }
+    suspend fun stop(): Result<Pair<String, String>> {
+        val media = recorder
+        val file = output
         recorder = null
         output = null
-        try {
-            media.stop()
-        } catch (error: RuntimeException) {
-            file.delete()
-            throw IllegalStateException("Recording was too short", error)
-        } finally {
-            media.release()
+        return runCatchingSuspend {
+            withContext(Dispatchers.IO) {
+                checkNotNull(media) { "No active recording" }
+                checkNotNull(file) { "Recording file missing" }
+                try {
+                    media.stop()
+                } catch (error: RuntimeException) {
+                    file.delete()
+                    throw IllegalStateException("Recording was too short", error)
+                } finally {
+                    media.release()
+                }
+                val bytes = try {
+                    file.readBytes()
+                } finally {
+                    file.delete()
+                }
+                check(bytes.isNotEmpty()) { "Recorded audio is empty" }
+                Base64.encode(bytes) to "m4a"
+            }
         }
-        val bytes = try {
-            file.readBytes()
-        } finally {
-            file.delete()
-        }
-        check(bytes.isNotEmpty()) { "Recorded audio is empty" }
-        Base64.encodeToString(bytes, Base64.NO_WRAP) to "m4a"
     }
 
     fun cancel() {

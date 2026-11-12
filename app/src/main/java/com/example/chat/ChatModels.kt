@@ -37,7 +37,8 @@ data class ToolItem(
 data class UserAttachment(
     val name: String,
     val path: String? = null,
-    val dataUrl: String? = null
+    val dataUrl: String? = null,
+    val previewUri: String? = null
 )
 
 @Immutable
@@ -58,7 +59,7 @@ data class Repo(
     val repoUrl: String
 ) {
     val name: String
-        get() = repoUrl.substringAfter("://").substringAfter('/')
+        get() = repoUrl.substringAfter("://").substringAfter('/').removeSuffix("/").removeSuffix(".git")
 
     companion object {
         private const val PREFIX = "cloud://"

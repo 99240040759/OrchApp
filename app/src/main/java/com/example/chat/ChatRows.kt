@@ -45,7 +45,7 @@ data class CopyRow(
 ) : ChatRow
 
 @Immutable
-data class EarlierRow(val loading: Boolean) : ChatRow {
+data class EarlierRow(val loading: Boolean, val failed: Boolean) : ChatRow {
     override val key: String = "earlier"
 }
 
@@ -56,30 +56,20 @@ private fun rowsOf(message: ChatMessage): List<ChatRow> {
 
     val rows = ArrayList<ChatRow>()
     val items = message.items
-    var i = 0
-    while (i < items.size) {
-        val start = i
-        if (items[i] is TextItem) {
-            val builder = StringBuilder()
-            while (i < items.size && items[i] is TextItem) {
-                if (builder.isNotEmpty() && builder.last() != '\n') builder.append('\n')
-                builder.append((items[i] as TextItem).text)
-                i++
-            }
-            if (builder.isNotBlank()) {
-                rows += TextRow(
-                    key = "${message.id}:t${items[start].id}",
-                    text = builder.toString(),
-                    live = message.streaming && i == items.size
-                )
-            }
+    var start = 0
+    while (start < items.size) {
+        val isText = items[start] is TextItem
+        var end = start + 1
+        while (end < items.size && (items[end] is TextItem) == isText) end++
+        val run = items.subList(start, end)
+        val live = message.streaming && end == items.size
+        if (isText) {
+            val text = run.filterIsInstance<TextItem>().joinToString("\n\n") { it.text.trim('\n') }
+            if (text.isNotBlank()) rows += TextRow("${message.id}:t${run.first().id}", text, live)
         } else {
-            while (i < items.size && items[i] !is TextItem) i++
-            val group = items.subList(start, i).toList()
-            val trailing = i == items.size
-            val live = message.streaming && trailing
-            rows += WorkRow("${message.id}:w${group.first().id}", group, live)
+            rows += WorkRow("${message.id}:w${run.first().id}", run.toList(), live)
         }
+        start = end
     }
     if (message.streaming && rows.isEmpty()) rows += PendingRow("${message.id}:p")
     message.error?.let { rows += NoticeRow("${message.id}:e", it, isError = true) }

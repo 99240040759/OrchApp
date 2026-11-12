@@ -27,13 +27,11 @@ sealed interface UpdateState {
 }
 
 class UpdateViewModel(application: Application) : AndroidViewModel(application) {
-
     private val updater = AppUpdater(application)
 
     private val state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     private val hidden = MutableStateFlow(false)
 
-    /** What the dialog shows. [UpdateState.Idle] means no dialog. */
     val dialog: StateFlow<UpdateState> = combine(state, hidden) { current, dismissed ->
         if (dismissed) UpdateState.Idle else current
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UpdateState.Idle)
@@ -54,7 +52,6 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Looks for a newer release and, if there is one, starts downloading it right away. */
     fun check() {
         if (state.value != UpdateState.Idle || job?.isActive == true) return
         val now = SystemClock.elapsedRealtime()
@@ -75,7 +72,6 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         job = viewModelScope.launch { download(info) }
     }
 
-    /** Hands the downloaded APK to Android's installer. The app closes while it is replaced. */
     fun install() {
         val ready = state.value as? UpdateState.Ready ?: return
         if (!updater.canInstall()) {
@@ -89,8 +85,9 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Hides the dialog until the app is opened again. A finished download is kept. */
     fun later() {
+        val current = state.value
+        if (current is UpdateState.Installing) state.value = UpdateState.Ready(current.info, current.file)
         hidden.value = true
     }
 

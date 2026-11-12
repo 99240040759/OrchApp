@@ -42,17 +42,7 @@ private data class GithubAsset(
     @SerialName("browser_download_url") val url: String = ""
 )
 
-/**
- * Looks for a newer release of this app in GitHub Releases, downloads it and hands it to
- * Android's package installer.
- *
- * Releases are tagged `vMAJOR.MINOR.PATCH`. CI turns the tag into the app's versionCode with
- * [versionCodeOf] (the same formula lives in release.yml), so "newer" is a numeric comparison.
- */
 class AppUpdater(private val context: Context) {
-
-    // Deliberately separate from the Orch API client: that one attaches the user's Firebase
-    // token to every request, which must never be sent to GitHub.
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -63,7 +53,6 @@ class AppUpdater(private val context: Context) {
     val installedVersion: Long
         get() = PackageInfoCompat.getLongVersionCode(context.packageManager.getPackageInfo(context.packageName, 0))
 
-    /** The newest published release, or null when it has no installable APK. */
     suspend fun latest(): UpdateInfo? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://api.github.com/repos/${BuildConfig.ORCH_UPDATE_REPO}/releases/latest")
@@ -80,10 +69,6 @@ class AppUpdater(private val context: Context) {
         UpdateInfo(versionCode, release.tag, asset.url, asset.size)
     }
 
-    /**
-     * Downloads the APK (or reuses an already downloaded, valid copy) and returns it.
-     * [onProgress] receives 0..1 when the total size is known.
-     */
     suspend fun download(info: UpdateInfo, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         directory.mkdirs()
         val target = File(directory, "Orch-${info.versionCode}.apk")
@@ -121,7 +106,6 @@ class AppUpdater(private val context: Context) {
         target
     }
 
-    /** Removes downloaded updates that are no longer newer than the installed app. */
     suspend fun cleanStale() = withContext(Dispatchers.IO) {
         directory.listFiles()?.forEach { file ->
             val version = archiveVersion(file)
@@ -132,17 +116,12 @@ class AppUpdater(private val context: Context) {
     fun canInstall(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
 
-    /** Opens the system screen where the user allows this app to install updates. */
     fun openInstallSettings() {
         val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
 
-    /**
-     * Streams the APK into a package installer session and commits it. Android then asks the
-     * user to confirm, replaces the app and closes it. Results arrive in [UpdateInstallReceiver].
-     */
     fun install(apk: File) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
@@ -152,26 +131,30 @@ class AppUpdater(private val context: Context) {
         }
         val sessionId = installer.createSession(params)
         installer.openSession(sessionId).use { session ->
-            apk.inputStream().use { input ->
-                session.openWrite(apk.name, 0, apk.length()).use { output ->
-                    input.copyTo(output)
-                    session.fsync(output)
+            try {
+                apk.inputStream().use { input ->
+                    session.openWrite(apk.name, 0, apk.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
                 }
+                val callback = PendingIntent.getBroadcast(
+                    context,
+                    sessionId,
+                    Intent(context, UpdateInstallReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                )
+                session.commit(callback.intentSender)
+            } catch (failure: Throwable) {
+                session.abandon()
+                throw failure
             }
-            val callback = PendingIntent.getBroadcast(
-                context,
-                sessionId,
-                Intent(context, UpdateInstallReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            )
-            session.commit(callback.intentSender)
         }
     }
 
     private fun isValid(file: File, info: UpdateInfo): Boolean =
         file.isFile && archiveVersion(file) == info.versionCode
 
-    /** Version of the APK file if it is a valid package of this app, otherwise null. */
     @Suppress("DEPRECATION")
     private fun archiveVersion(file: File): Long? {
         if (!file.isFile || file.extension != "apk") return null
@@ -185,7 +168,6 @@ class AppUpdater(private val context: Context) {
         const val BUFFER_BYTES = 64 * 1024
         val TAG_PATTERN = Regex("""^v?(\d+)\.(\d+)\.(\d+)$""")
 
-        /** MAJOR * 1,000,000 + MINOR * 1,000 + PATCH, or null when the tag isn't a version. */
         fun versionCodeOf(tag: String): Long? {
             val (major, minor, patch) = TAG_PATTERN.matchEntire(tag)?.destructured ?: return null
             return major.toLong() * 1_000_000 + minor.toLong() * 1_000 + patch.toLong()

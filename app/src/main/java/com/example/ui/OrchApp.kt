@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
@@ -34,6 +35,7 @@ import com.example.ui.sheets.AttachmentSheet
 import com.example.ui.sheets.FilesSheet
 import com.example.ui.sheets.ModelSheet
 import com.example.ui.theme.OrchBackground
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private enum class Sheet { None, Attach, Files, Models, Account }
@@ -63,13 +65,12 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
     val saving by vm.saving.collectAsStateWithLifecycle()
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onForeground() }
-    LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(it) } }
-    // Toasts are drawn above bottom sheets, unlike the snackbar.
+    LaunchedEffect(vm) { vm.notices.collectLatest { snackbar.showSnackbar(it) } }
     LaunchedEffect(vm) {
         vm.saveResults.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     }
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) {
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {
         vm.addAttachments(it)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
@@ -128,12 +129,19 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
         Sheet.None -> Unit
         Sheet.Attach -> AttachmentSheet(
             chat = chat,
-            onPickImages = { imagePicker.launch("image/*") },
-            onPickFiles = { filePicker.launch(arrayOf("*/*")) },
+            onPickImages = {
+                sheet = Sheet.None
+                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onPickFiles = {
+                sheet = Sheet.None
+                filePicker.launch(arrayOf("*/*"))
+            },
             onOpenExplorer = { sheet = Sheet.Files },
             onConnectRepo = vm::connectRepo,
+            onEditRepo = vm::clearRepoError,
             onDisconnectRepo = vm::disconnectRepo,
-            onDismiss = { if (sheet == Sheet.Attach) sheet = Sheet.None }
+            onDismiss = { sheet = Sheet.None }
         )
         Sheet.Files -> FilesSheet(
             files = files,

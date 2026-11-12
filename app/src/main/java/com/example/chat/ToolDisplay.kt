@@ -35,10 +35,13 @@ private fun JsonObject.strings(key: String): List<String> =
 
 private fun lineCount(text: String?): Int? {
     if (text.isNullOrEmpty()) return null
-    val lines = text.split("\n").toMutableList()
-    if (lines.last().isEmpty()) lines.removeAt(lines.lastIndex)
-    return lines.size.takeIf { it > 0 }
+    return text.count { it == '\n' } + if (text.last() == '\n') 0 else 1
 }
+
+private fun JsonObject.firstString(): String? = keys.firstNotNullOfOrNull { str(it) }
+
+private fun humanize(name: String): String =
+    name.replace('_', ' ').replace('-', ' ').trim().replaceFirstChar { it.uppercase() }
 
 private fun baseName(path: String): String = path.trimEnd('/').substringAfterLast('/')
 
@@ -107,5 +110,7 @@ fun toolDisplay(name: String, args: JsonObject): ToolDisplay = when (name) {
         fullPath = args.str("DirectoryPath"),
         target = args.str("DirectoryPath")
     )
-    else -> ToolDisplay(name, name, ToolIcon.Terminal, target = args.toString().take(120))
+    else -> humanize(name).let { label ->
+        ToolDisplay(label, label, ToolIcon.Terminal, target = args.firstString()?.take(120))
+    }
 }

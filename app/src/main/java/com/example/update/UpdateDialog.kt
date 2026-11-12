@@ -105,9 +105,7 @@ fun UpdateDialog(
             }
         },
         dismissButton = {
-            if (state !is UpdateState.Installing) {
-                TextButton(onClick = onLater) { Text("Later", color = OrchTextSecondary) }
-            }
+            TextButton(onClick = onLater) { Text("Later", color = OrchTextSecondary) }
         }
     )
 }

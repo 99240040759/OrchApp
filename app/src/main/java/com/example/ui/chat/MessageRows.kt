@@ -1,7 +1,7 @@
 package com.example.ui.chat
 
 import android.graphics.BitmapFactory
-import android.util.Base64
+import android.content.ClipData
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,21 +50,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.chat.ChatItem
+import coil.compose.AsyncImage
 import com.example.chat.ChatRow
 import com.example.chat.CopyRow
 import com.example.chat.EarlierRow
@@ -80,6 +83,7 @@ import com.example.chat.UserRow
 import com.example.chat.WorkRow
 import com.example.ui.theme.OrchAccentCoral
 import com.example.ui.theme.OrchAdded
+import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchRemoved
 import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchSurfaceElevated
@@ -87,7 +91,9 @@ import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.io.encoding.Base64
 
 @Composable
 fun ChatRowView(
@@ -102,18 +108,26 @@ fun ChatRowView(
         is PendingRow -> StatusLabel("Thinking")
         is NoticeRow -> Notice(row)
         is CopyRow -> CopyAction(row.text)
-        is EarlierRow -> EarlierButton(row.loading, onLoadEarlier)
+        is EarlierRow -> EarlierButton(row.loading, row.failed, onLoadEarlier)
     }
 }
+
+private val UserBubbleShape = RoundedCornerShape(14.dp)
+private val Whitespace = Regex("\\s+")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.End,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         if (row.attachments.isNotEmpty()) {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 row.attachments.forEach { AttachmentChip(it, onOpenFile) }
             }
@@ -125,9 +139,10 @@ private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
                     style = MaterialTheme.typography.bodyLarge,
                     color = OrchTextPrimary,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .widthIn(max = 320.dp)
+                        .clip(UserBubbleShape)
                         .background(OrchSurface)
+                        .border(1.dp, OrchBorder, UserBubbleShape)
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 )
             }
@@ -137,9 +152,9 @@ private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
 
 private const val THUMBNAIL_PX = 144
 
-private fun decodeThumbnail(dataUrl: String): androidx.compose.ui.graphics.ImageBitmap? {
+private fun decodeThumbnail(dataUrl: String): ImageBitmap? {
     if (!dataUrl.contains("base64,")) return null
-    val bytes = Base64.decode(dataUrl.substringAfter("base64,"), Base64.DEFAULT)
+    val bytes = Base64.Mime.decode(dataUrl.substringAfter("base64,"))
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     var sample = 1
@@ -150,12 +165,13 @@ private fun decodeThumbnail(dataUrl: String): androidx.compose.ui.graphics.Image
 
 @Composable
 private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> Unit) {
-    val thumbnail by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, attachment.dataUrl) {
+    val thumbnail by produceState<ImageBitmap?>(null, attachment.dataUrl) {
         value = attachment.dataUrl?.let { url ->
             withContext(Dispatchers.Default) { runCatching { decodeThumbnail(url) }.getOrNull() }
         }
     }
     val path = attachment.path
+    val previewModifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp))
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -165,12 +181,20 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
             .then(if (path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
             .padding(6.dp)
     ) {
-        thumbnail?.let {
-            Image(
-                bitmap = it,
+        val previewUri = attachment.previewUri
+        val bitmap = thumbnail
+        when {
+            previewUri != null -> AsyncImage(
+                model = previewUri,
                 contentDescription = attachment.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp))
+                modifier = previewModifier
+            )
+            bitmap != null -> Image(
+                bitmap = bitmap,
+                contentDescription = attachment.name,
+                contentScale = ContentScale.Crop,
+                modifier = previewModifier
             )
         }
         Text(
@@ -186,12 +210,7 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
 
 @Composable
 private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
-    var toggled by rememberSaveable(row.key) { mutableStateOf<Boolean?>(null) }
-    var wasLive by remember { mutableStateOf(row.live) }
-    LaunchedEffect(row.live) {
-        if (wasLive && !row.live) toggled = null
-        wasLive = row.live
-    }
+    var toggled by rememberSaveable(row.key, row.live) { mutableStateOf<Boolean?>(null) }
     val open = toggled ?: row.live
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -256,12 +275,7 @@ private fun StatusLabel(text: String) {
 
 @Composable
 private fun ThinkingBlock(item: ReasoningItem) {
-    var toggled by rememberSaveable(item.id) { mutableStateOf<Boolean?>(null) }
-    var wasActive by remember { mutableStateOf(item.active) }
-    LaunchedEffect(item.active) {
-        if (wasActive && !item.active) toggled = null
-        wasActive = item.active
-    }
+    var toggled by rememberSaveable(item.id, item.active) { mutableStateOf<Boolean?>(null) }
     val open = toggled ?: item.active
     val label = if (item.active) "Thinking" else "Thought"
 
@@ -380,7 +394,7 @@ private fun ToolTarget(display: ToolDisplay, onOpenFile: (String) -> Unit, modif
     ) {
         Icon(display.icon.vector(), null, tint = OrchTextSecondary, modifier = Modifier.size(14.dp))
         Text(
-            text = target.replace(Regex("\\s+"), " "),
+            text = target.replace(Whitespace, " "),
             style = MaterialTheme.typography.bodyMedium,
             color = OrchTextPrimary,
             maxLines = 1,
@@ -445,7 +459,8 @@ private fun Notice(row: NoticeRow) {
 
 @Composable
 private fun CopyAction(text: String) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
@@ -459,8 +474,10 @@ private fun CopyAction(text: String) {
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable {
-                clipboard.setText(AnnotatedString(text))
-                copied = true
+                scope.launch {
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("response", text)))
+                    copied = true
+                }
             }
             .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
@@ -479,14 +496,14 @@ private fun CopyAction(text: String) {
 }
 
 @Composable
-private fun EarlierButton(loading: Boolean, onLoad: () -> Unit) {
-    LaunchedEffect(Unit) { onLoad() }
+private fun EarlierButton(loading: Boolean, failed: Boolean, onLoad: () -> Unit) {
+    LaunchedEffect(failed) { if (!failed) onLoad() }
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
         } else {
             TextButton(onClick = onLoad) {
-                Text("Load earlier messages", color = OrchTextSecondary)
+                Text(if (failed) "Couldn't load. Tap to retry" else "Load earlier messages", color = OrchTextSecondary)
             }
         }
     }
