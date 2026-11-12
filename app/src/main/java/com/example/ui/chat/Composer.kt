@@ -178,7 +178,7 @@ fun Composer(
                         transcribe = transcribe,
                         onText = { text ->
                             state.edit {
-                                if (length > 0 && !last().isWhitespace()) append(' ')
+                                if (length > 0 && !this[length - 1].isWhitespace()) append(' ')
                                 append(text)
                             }
                         }
