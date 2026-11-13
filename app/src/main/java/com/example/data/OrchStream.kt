@@ -89,7 +89,7 @@ class OrchStream(private val client: OrchClient, cacheDir: File) {
                 override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                     val payload = runCatching { OrchJson.parseToJsonElement(data).jsonObject }.getOrNull()
                     val kind = type?.takeIf { it.isNotBlank() }
-                        ?: payload?.get("event_type")?.jsonPrimitive?.contentOrNull
+                        ?: payload?.get("type")?.jsonPrimitive?.contentOrNull
                         ?: return
                     trySend(SseFrame(id?.toLongOrNull(), kind, payload ?: JsonObject(emptyMap())))
                     if (kind == "done") close()

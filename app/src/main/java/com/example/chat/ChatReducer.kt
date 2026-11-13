@@ -1,25 +1,18 @@
 package com.example.chat
 
-import com.example.data.StoredRecord
+import com.example.data.OrchJson
+import com.example.data.ToolDisplay
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 
 class ChatReducer(private val idPrefix: String = "c") {
-    private enum class Kind { Thought, Text, Other }
-
-    private class Slot(val kind: Kind, var itemId: String? = null)
-
-    private class ToolResult(val callId: String, val output: String?, val isError: Boolean)
-
     private val list = ArrayList<ChatMessage>()
-    private val slots = HashMap<Int, Slot>()
-    private val orphans = HashMap<String, ToolResult>()
     private var counter = 0
     private var replaying = false
 
@@ -41,8 +34,6 @@ class ChatReducer(private val idPrefix: String = "c") {
 
     private fun resetContent() {
         list.clear()
-        slots.clear()
-        orphans.clear()
         replaying = false
     }
 
@@ -50,9 +41,11 @@ class ChatReducer(private val idPrefix: String = "c") {
         contextTokens = tokens
     }
 
-    fun load(records: List<StoredRecord>) {
+    fun load(records: List<JsonObject>) {
         resetContent()
-        records.sortedBy { it.seq }.forEach { applyRecord(it.record) }
+        records
+            .sortedBy { it.long("seq") ?: 0L }
+            .forEach { applyRecord(it) }
         for (index in list.indices) {
             val message = list[index]
             if (message.role != Role.Assistant) continue
@@ -61,7 +54,7 @@ class ChatReducer(private val idPrefix: String = "c") {
         }
     }
 
-    fun prepend(records: List<StoredRecord>) {
+    fun prepend(records: List<JsonObject>) {
         val page = ChatReducer("p${counter++}-").apply { load(records) }
         val older = ArrayList(page.list)
         val tail = older.lastOrNull()
@@ -71,14 +64,11 @@ class ChatReducer(private val idPrefix: String = "c") {
             list[0] = head.copy(items = tail.items + head.items)
         }
         list.addAll(0, older)
-        resolveOrphans()
-        orphans.putAll(page.orphans)
     }
 
     fun beginTurn(text: String, attachments: List<UserAttachment>) {
         list += ChatMessage(newId(), Role.User, text = text, attachments = attachments)
         list += ChatMessage(newId(), Role.Assistant, streaming = true)
-        slots.clear()
         replaying = false
     }
 
@@ -86,12 +76,12 @@ class ChatReducer(private val idPrefix: String = "c") {
         val index = list.lastIndex
         val last = list.getOrNull(index)
         if (last != null && last.role == Role.Assistant) {
-            list[index] = last.copy(streaming = true, cancelled = false, error = null)
+            list[index] = last.copy(streaming = true, cancelled = false, error = null, statusNote = null)
             replaying = true
         } else {
             list += ChatMessage(newId(), Role.Assistant, streaming = true)
+            replaying = false
         }
-        slots.clear()
     }
 
     fun fail(message: String) {
@@ -99,31 +89,38 @@ class ChatReducer(private val idPrefix: String = "c") {
     }
 
     fun onFrame(type: String, data: JsonObject) {
-        if (replaying && type.startsWith("step.")) {
+        if (replaying && type in LIVE_STEP_EVENTS) {
             replaying = false
-            updateStreaming { it.copy(items = emptyList()) }
+            updateStreaming { it.copy(items = emptyList(), error = null, statusNote = null) }
         }
         when (type) {
-            "step.start" -> stepStart(data)
-            "step.delta" -> stepDelta(data)
-            "step.stop" -> stepStop(data)
-            "interaction.status_update" -> if (data.str("status") == "cancelled") settle(cancelled = true)
+            "workStart" -> onWorkStart()
+            "workStop" -> onWorkStop(data)
+            "reasoningStart" -> onReasoningStart()
+            "reasoningDelta" -> onReasoningDelta(data)
+            "reasoningStop" -> onReasoningStop(data)
+            "textDelta" -> onTextDelta(data)
+            "textStop" -> onTextStop()
+            "toolStart" -> onToolStart(data)
+            "toolResult" -> onToolResult(data)
+            "usage" -> data.long("contextTokens")?.let { contextTokens = it }
+            "notice" -> onNotice(data)
+            "compacted" -> onCompacted(data)
+            "resync" -> resync()
+            "cancelled" -> settle(cancelled = true)
             "error" -> settle(error = errorMessage(data))
-            "orch.resync" -> resync()
             "done" -> settle()
         }
     }
 
     private fun resync() {
-        slots.clear()
-        replaying = false
-        updateStreaming { it.copy(items = emptyList(), error = null) }
+        replaying = true
     }
 
     private fun errorMessage(data: JsonObject): String =
         (data["error"] as? JsonObject)?.str("message")
-            ?: data.str("error")
             ?: data.str("message")
+            ?: data.str("error")
             ?: "The agent stopped unexpectedly."
 
     private fun updateStreaming(transform: (ChatMessage) -> ChatMessage) {
@@ -142,80 +139,232 @@ class ChatReducer(private val idPrefix: String = "c") {
         updateStreaming { message ->
             message.copy(
                 streaming = false,
+                statusNote = null,
                 cancelled = cancelled,
                 error = error,
                 items = message.items.map { settleItem(it, failed) }
             )
         }
-        slots.clear()
     }
 
     private fun settleItem(item: ChatItem, failed: Boolean): ChatItem = when (item) {
-        is ReasoningItem if item.active -> item.copy(active = false)
-        is ToolItem if item.status == ToolStatus.Running ->
+        is WorkGroupItem -> item.copy(
+            active = false,
+            stopped = item.stopped || failed,
+            items = item.items.map { settleItem(it, failed || item.stopped) }
+        )
+        is ReasoningItem -> if (item.active) item.copy(active = false) else item
+        is TextItem -> if (item.active) item.copy(active = false) else item
+        is ToolItem -> if (item.status == ToolStatus.Running) {
             item.copy(status = if (failed) ToolStatus.Error else ToolStatus.Done)
-        else -> item
+        } else {
+            item
+        }
+        is CompactionItem -> item
     }
 
-    private fun stepStart(data: JsonObject) {
-        val index = data["index"].asInt() ?: return
-        val step = data["step"] as? JsonObject ?: return
-        when (step.str("type")) {
-            "thought" -> slots[index] = Slot(Kind.Thought)
-            "model_output" -> slots[index] = Slot(Kind.Text)
-            else -> {
-                slots[index] = Slot(Kind.Other)
-                val tool = toolFromStep(step)
-                if (tool != null) {
-                    mutateItems { it + tool }
+    private fun ensureActiveWork(items: List<ChatItem>): Pair<List<ChatItem>, WorkGroupItem> {
+        val closed = closeActiveText(items)
+        val last = closed.lastOrNull()
+        return if (last is WorkGroupItem && last.active) {
+            closed.dropLast(1) to last
+        } else {
+            closed to WorkGroupItem(id = newId(), active = true)
+        }
+    }
+
+    private fun closeActiveText(items: List<ChatItem>): List<ChatItem> {
+        val last = items.lastOrNull() as? TextItem ?: return items
+        if (!last.active) return items
+        return items.dropLast(1) + last.copy(active = false)
+    }
+
+    private fun closeActiveReasoning(workItems: List<ChatItem>, durationSeconds: Long? = null): List<ChatItem> {
+        val index = workItems.indexOfLast { it is ReasoningItem && it.active }
+        if (index < 0) return workItems
+        val item = workItems[index] as ReasoningItem
+        return workItems.replaced(
+            index,
+            item.copy(active = false, durationSeconds = durationSeconds ?: item.durationSeconds)
+        )
+    }
+
+    private fun closeActiveWork(
+        items: List<ChatItem>,
+        durationSeconds: Long? = null,
+        stopped: Boolean = false
+    ): List<ChatItem> {
+        val index = items.indexOfLast { it is WorkGroupItem && it.active }
+        if (index < 0) return items
+        val group = items[index] as WorkGroupItem
+        val settledChildren = group.items.map { child ->
+            when (child) {
+                is ReasoningItem -> if (child.active) child.copy(active = false) else child
+                is ToolItem -> if (child.status == ToolStatus.Running && stopped) {
+                    child.copy(status = ToolStatus.Error)
                 } else {
-                    resultFromStep(step)?.let { result -> mutateItems { applyResult(it, result) ?: it } }
+                    child
                 }
+                else -> child
             }
+        }
+        return items.replaced(
+            index,
+            group.copy(
+                active = false,
+                durationSeconds = durationSeconds ?: group.durationSeconds,
+                stopped = stopped || group.stopped,
+                items = settledChildren
+            )
+        )
+    }
+
+    private fun onWorkStart() {
+        mutateItems { items ->
+            val (prefix, group) = ensureActiveWork(items)
+            prefix + group
         }
     }
 
-    private fun stepDelta(data: JsonObject) {
-        val slot = slots[data["index"].asInt() ?: return] ?: return
-        val text = deltaText(data["delta"])
-        if (text.isEmpty() || slot.kind == Kind.Other) return
+    private fun onWorkStop(data: JsonObject) {
+        val duration = data.long("durationSeconds")
+        val stopped = data.bool("stopped") == true
         mutateItems { items ->
-            val position = slot.itemId?.let { id -> items.indexOfLast { it.id == id } } ?: -1
-            if (position < 0) {
-                val id = newId()
-                slot.itemId = id
-                val created: ChatItem =
-                    if (slot.kind == Kind.Thought) ReasoningItem(id, text, active = true) else TextItem(id, text)
-                items + created
+            closeActiveWork(items, durationSeconds = duration, stopped = stopped)
+        }
+    }
+
+    private fun onReasoningStart() {
+        mutateItems { items ->
+            val (prefix, group) = ensureActiveWork(items)
+            val closed = closeActiveReasoning(group.items)
+            prefix + group.copy(items = closed + ReasoningItem(id = newId(), text = "", active = true))
+        }
+    }
+
+    private fun onReasoningDelta(data: JsonObject) {
+        val delta = data.str("text") ?: return
+        if (delta.isEmpty()) return
+        mutateItems { items ->
+            val (prefix, group) = ensureActiveWork(items)
+            val last = group.items.lastOrNull()
+            val updated = if (last is ReasoningItem && last.active) {
+                group.items.dropLast(1) + last.copy(text = last.text + delta)
             } else {
-                val grown: ChatItem = when (val item = items[position]) {
-                    is ReasoningItem -> item.copy(text = item.text + text)
-                    is TextItem -> item.copy(text = item.text + text)
-                    else -> item
+                val closed = closeActiveReasoning(group.items)
+                closed + ReasoningItem(id = newId(), text = delta, active = true)
+            }
+            prefix + group.copy(items = updated)
+        }
+    }
+
+    private fun onReasoningStop(data: JsonObject) {
+        val duration = data.long("durationSeconds")
+        mutateItems { items ->
+            val index = items.indexOfLast { it is WorkGroupItem && it.active }
+            if (index < 0) return@mutateItems items
+            val group = items[index] as WorkGroupItem
+            items.replaced(index, group.copy(items = closeActiveReasoning(group.items, duration)))
+        }
+    }
+
+    private fun onToolStart(data: JsonObject) {
+        val callId = data.str("id").orEmpty()
+        val name = data.str("name").orEmpty()
+        val display = data["display"]?.let {
+            runCatching { OrchJson.decodeFromJsonElement<ToolDisplay>(it) }.getOrNull()
+        } ?: ToolDisplay(label = name, activeLabel = name)
+        val tool = ToolItem(
+            id = newId(),
+            callId = callId,
+            display = display,
+            output = null,
+            status = ToolStatus.Running
+        )
+        mutateItems { items ->
+            val (prefix, group) = ensureActiveWork(items)
+            val closed = closeActiveReasoning(group.items)
+            prefix + group.copy(items = closed + tool)
+        }
+    }
+
+    private fun onToolResult(data: JsonObject) {
+        val callId = data.str("callId").orEmpty()
+        val isError = data.bool("isError") == true
+        val output = data.str("output")
+        val status = if (isError) ToolStatus.Error else ToolStatus.Done
+        mutateItems { items ->
+            items.map { item ->
+                if (item is WorkGroupItem) {
+                    val idx = item.items.indexOfLast { it is ToolItem && it.callId == callId }
+                    if (idx >= 0) {
+                        val tool = item.items[idx] as ToolItem
+                        item.copy(
+                            items = item.items.replaced(
+                                idx,
+                                tool.copy(output = output ?: tool.output, status = status)
+                            )
+                        )
+                    } else {
+                        item
+                    }
+                } else {
+                    item
                 }
-                items.replaced(position, grown)
             }
         }
     }
 
-    private fun stepStop(data: JsonObject) {
-        val index = data["index"].asInt() ?: return
-        ((data["step_usage"] as? JsonObject)?.get("total_input_tokens")).asLong()?.let { contextTokens = it }
-        val slot = slots.remove(index) ?: return
-        val id = slot.itemId ?: return
-        if (slot.kind != Kind.Thought) return
+    private fun onTextDelta(data: JsonObject) {
+        val delta = data.str("text") ?: return
+        if (delta.isEmpty()) return
         mutateItems { items ->
-            val position = items.indexOfLast { it.id == id }
-            val item = items.getOrNull(position) as? ReasoningItem
-            if (item == null) items else items.replaced(position, item.copy(active = false))
+            val closedWork = closeActiveWork(items)
+            val last = closedWork.lastOrNull()
+            if (last is TextItem && last.active) {
+                closedWork.dropLast(1) + last.copy(text = last.text + delta)
+            } else {
+                val closedText = closeActiveText(closedWork)
+                closedText + TextItem(id = newId(), text = delta, active = true)
+            }
+        }
+    }
+
+    private fun onTextStop() {
+        mutateItems { items -> closeActiveText(items) }
+    }
+
+    private fun onNotice(data: JsonObject) {
+        val raw = (data["message"] as? JsonPrimitive)?.contentOrNull?.trim()
+        updateStreaming { it.copy(statusNote = raw?.takeIf { s -> s.isNotEmpty() }) }
+    }
+
+    private fun onCompacted(data: JsonObject) {
+        data.long("contextTokens")?.let { contextTokens = it }
+        val id = data.str("id") ?: newId()
+        val count = data.int("originalMessageCount") ?: 0
+        val ts = data.long("ts") ?: 0L
+        updateStreaming { message ->
+            val closed = closeActiveText(closeActiveWork(message.items))
+            message.copy(
+                statusNote = null,
+                items = closed + CompactionItem(id = id, originalMessageCount = count, ts = ts)
+            )
         }
     }
 
     private fun applyRecord(record: JsonObject) {
         when (record.str("kind")) {
-            "user_input" -> list += userMessage(record["content"] as? JsonArray)
-            "step" -> applyStepRecord(record)
-            "interaction" -> applyInteractionRecord(record)
+            "user" -> list += userMessage(record["content"] as? JsonArray)
+            "work" -> applyWorkRecord(record)
+            "reasoning" -> applyReasoningRecord(record)
+            "toolCall" -> applyToolCallRecord(record)
+            "text" -> applyTextRecord(record)
+            "compaction" -> applyCompactionRecord(record)
+            "error" -> {
+                val index = ensureAssistant()
+                list[index] = list[index].copy(error = record.str("message") ?: "The agent stopped unexpectedly.")
+            }
         }
     }
 
@@ -224,147 +373,141 @@ class ChatReducer(private val idPrefix: String = "c") {
         return list.lastIndex
     }
 
-    private fun applyStepRecord(record: JsonObject) {
-        val step = record["step"] as? JsonObject ?: return
-        val deltas = record["deltas"] as? JsonArray ?: JsonArray(emptyList())
-        val text = deltas.joinToString("") { deltaText(it) }
+    private fun appendToWorkGroup(child: ChatItem) {
         val index = ensureAssistant()
         val message = list[index]
-        val items = when (step.str("type")) {
-            "thought" ->
-                if (text.isBlank()) message.items
-                else message.items + ReasoningItem(newId(), text, active = false)
-            "model_output" ->
-                if (text.isBlank()) message.items else message.items + TextItem(newId(), text)
-            else -> {
-                val tool = toolFromStep(step)
-                val result = if (tool == null) resultFromStep(step) else null
-                when {
-                    tool != null -> message.items + tool
-                    result != null -> applyResult(message.items, result)
-                        ?: message.items.also { orphans[result.callId] = result }
-                    else -> message.items
-                }
-            }
+        val items = message.items
+        val last = items.lastOrNull()
+        val updated = if (last is WorkGroupItem) {
+            items.dropLast(1) + last.copy(items = last.items + child)
+        } else {
+            items + WorkGroupItem(id = newId(), items = listOf(child))
         }
-        list[index] = message.copy(items = items)
+        list[index] = message.copy(items = updated)
     }
 
-    private fun applyInteractionRecord(record: JsonObject) {
-        val data = record["data"] as? JsonObject ?: return
-        when (record.str("event_type")) {
-            "error" -> {
-                val index = ensureAssistant()
-                list[index] = list[index].copy(error = errorMessage(data))
-            }
-            "interaction.status_update" -> if (data.str("status") == "cancelled") {
-                val index = ensureAssistant()
-                list[index] = list[index].copy(cancelled = true)
-            }
-        }
+    private fun applyWorkRecord(record: JsonObject) {
+        val index = ensureAssistant()
+        val message = list[index]
+        val group = WorkGroupItem(
+            id = newId(),
+            durationSeconds = record.long("durationSeconds"),
+            stopped = record.bool("stopped") == true,
+            active = false
+        )
+        list[index] = message.copy(items = message.items + group)
+    }
+
+    private fun applyReasoningRecord(record: JsonObject) {
+        val text = record.str("text").orEmpty()
+        if (text.isBlank()) return
+        appendToWorkGroup(
+            ReasoningItem(
+                id = newId(),
+                text = text,
+                durationSeconds = record.long("durationSeconds"),
+                active = false
+            )
+        )
+    }
+
+    private fun applyToolCallRecord(record: JsonObject) {
+        val callId = record.str("id").orEmpty()
+        val name = record.str("name").orEmpty()
+        val display = record["display"]?.let {
+            runCatching { OrchJson.decodeFromJsonElement<ToolDisplay>(it) }.getOrNull()
+        } ?: ToolDisplay(label = name, activeLabel = name)
+        val output = record.str("output")
+        val isError = record.bool("isError") == true
+        appendToWorkGroup(
+            ToolItem(
+                id = newId(),
+                callId = callId,
+                display = display,
+                output = output,
+                status = if (isError) ToolStatus.Error else ToolStatus.Done
+            )
+        )
+    }
+
+    private fun applyTextRecord(record: JsonObject) {
+        val text = record.str("text").orEmpty()
+        if (text.isBlank()) return
+        val index = ensureAssistant()
+        val message = list[index]
+        list[index] = message.copy(items = message.items + TextItem(newId(), text, active = false))
+    }
+
+    private fun applyCompactionRecord(record: JsonObject) {
+        val index = ensureAssistant()
+        val message = list[index]
+        val item = CompactionItem(
+            id = record.str("id") ?: newId(),
+            originalMessageCount = record.int("originalMessageCount") ?: 0,
+            ts = record.long("ts") ?: 0L
+        )
+        list[index] = message.copy(items = message.items + item)
     }
 
     private fun userMessage(content: JsonArray?): ChatMessage {
         val parts = content?.mapNotNull { it as? JsonObject }.orEmpty()
-        val raw = parts.filter { it.str("type") == "text" }.mapNotNull { it.str("text") }.joinToString("\n\n")
-        val (text, noted) = splitNotes(raw)
-        val images = parts.filter { it.str("type") == "image" }.mapIndexed { i, part ->
-            val mime = part.str("mime_type") ?: "image/png"
-            UserAttachment(
-                name = "image${i + 1}.${mime.substringAfter('/')}",
-                dataUrl = part.str("data")?.let { "data:$mime;base64,$it" }
-            )
-        }
-        return ChatMessage(newId(), Role.User, text = text, attachments = noted + images)
-    }
-
-    private fun splitNotes(raw: String): Pair<String, List<UserAttachment>> {
-        val lines = raw.lines().toMutableList()
+        val texts = ArrayList<String>()
         val attachments = ArrayList<UserAttachment>()
-        while (lines.isNotEmpty()) {
-            val line = lines.last().trim()
-            if (line.isEmpty()) {
-                lines.removeAt(lines.lastIndex)
-                continue
+        var imageCount = 0
+        for (part in parts) {
+            when (part.str("type")) {
+                "text" -> part.str("text")?.takeIf { it.isNotBlank() }?.let { texts += it }
+                "image" -> {
+                    imageCount++
+                    val mime = part.str("mimeType") ?: "image/png"
+                    val ext = mime.substringAfter('/').ifEmpty { "png" }
+                    val data = part.str("data")
+                    val uri = part.str("uri")?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                    attachments += UserAttachment(
+                        name = "image$imageCount.$ext",
+                        dataUrl = data?.let { "data:$mime;base64,$it" },
+                        previewUri = if (data == null) uri else null
+                    )
+                }
+                "document" -> {
+                    val path = part.str("path")
+                    val name = part.str("name") ?: path?.substringAfterLast('/') ?: "file"
+                    attachments += UserAttachment(name = name, path = path)
+                }
             }
-            if (!(line.startsWith("[") && line.endsWith("]"))) break
-            lines.removeAt(lines.lastIndex)
-            UPLOAD_NOTE.find(line)?.let { match ->
-                val path = match.groupValues[1].trimEnd('.')
-                val binary = path.endsWith(".b64")
-                val clean = path.removeSuffix(".b64")
-                attachments.add(0, UserAttachment(name = clean.substringAfterLast('/'), path = if (binary) null else path))
-            }
         }
-        return lines.joinToString("\n").trim() to attachments
-    }
-
-    private fun toolFromStep(step: JsonObject): ToolItem? {
-        val callId = step.str("id").orEmpty()
-        val arguments = step["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-        val (name, args) = when (step.str("type")) {
-            "function_call" -> (step.str("name") ?: "tool") to arguments
-            "code_execution_call" -> EXECUTE_BASH to JsonObject(
-                listOfNotNull(arguments["code"]?.let { "command" to it }).toMap()
-            )
-            "google_search_call" -> "search" to arguments
-            "url_context_call" -> "browse" to arguments
-            else -> return null
-        }
-        return ToolItem(newId(), callId, toolDisplay(name, args), null, ToolStatus.Running)
-    }
-
-    private fun resultFromStep(step: JsonObject): ToolResult? {
-        val callId = step.str("call_id").orEmpty()
-        val isError = (step["is_error"] as? JsonPrimitive)?.booleanOrNull == true
-        return when (step.str("type")) {
-            "code_execution_result" -> ToolResult(callId, resultText(step["result"]), isError)
-            "function_result", "google_search_result", "url_context_result" -> ToolResult(callId, null, isError)
-            else -> null
-        }
-    }
-
-    private fun applyResult(items: List<ChatItem>, result: ToolResult): List<ChatItem>? {
-        val position = items.indexOfLast { it is ToolItem && it.callId == result.callId }
-        if (position < 0) return null
-        val tool = items[position] as ToolItem
-        val status = if (result.isError) ToolStatus.Error else ToolStatus.Done
-        return items.replaced(position, tool.copy(output = result.output ?: tool.output, status = status))
-    }
-
-    private fun resolveOrphans() {
-        val pending = orphans.iterator()
-        while (pending.hasNext()) {
-            val result = pending.next().value
-            val index = list.indexOfFirst { message -> message.items.any { it is ToolItem && it.callId == result.callId } }
-            if (index < 0) continue
-            val items = applyResult(list[index].items, result) ?: continue
-            list[index] = list[index].copy(items = items)
-            pending.remove()
-        }
+        return ChatMessage(
+            id = newId(),
+            role = Role.User,
+            text = texts.joinToString("\n\n").trim(),
+            attachments = attachments
+        )
     }
 
     private fun List<ChatItem>.replaced(position: Int, item: ChatItem): List<ChatItem> =
         toMutableList().also { it[position] = item }
 
-    private fun resultText(result: JsonElement?): String? = when (result) {
-        null, JsonNull -> null
-        is JsonPrimitive -> result.content
-        else -> result.toString()
-    }
-
-    private fun deltaText(delta: JsonElement?): String {
-        val obj = delta as? JsonObject ?: return ""
-        (obj["content"] as? JsonObject)?.str("text")?.let { return it }
-        val type = obj.str("type")
-        return if (type == null || type == "text") obj.str("text").orEmpty() else ""
-    }
-
-    private fun JsonElement?.asInt(): Int? = (this as? JsonPrimitive)?.intOrNull
-
-    private fun JsonElement?.asLong(): Long? = (this as? JsonPrimitive)?.longOrNull
-
     private companion object {
-        val UPLOAD_NOTE = Regex("""available at (/\S+)""")
+        val LIVE_STEP_EVENTS = setOf(
+            "workStart",
+            "workStop",
+            "reasoningStart",
+            "reasoningDelta",
+            "reasoningStop",
+            "textDelta",
+            "textStop",
+            "toolStart",
+            "toolResult",
+            "compacted"
+        )
     }
 }
+
+private fun JsonObject.str(key: String): String? =
+    (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotEmpty() }
+
+private fun JsonObject.int(key: String): Int? = (this[key] as? JsonPrimitive)?.intOrNull
+
+private fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.longOrNull
+
+private fun JsonObject.bool(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull

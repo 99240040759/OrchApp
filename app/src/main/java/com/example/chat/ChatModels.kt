@@ -1,6 +1,7 @@
 package com.example.chat
 
 import androidx.compose.runtime.Immutable
+import com.example.data.ToolDisplay
 
 enum class Role { User, Assistant }
 
@@ -12,16 +13,27 @@ sealed interface ChatItem {
 }
 
 @Immutable
+data class WorkGroupItem(
+    override val id: String,
+    val items: List<ChatItem> = emptyList(),
+    val durationSeconds: Long? = null,
+    val stopped: Boolean = false,
+    val active: Boolean = false
+) : ChatItem
+
+@Immutable
 data class TextItem(
     override val id: String,
-    val text: String
+    val text: String,
+    val active: Boolean = false
 ) : ChatItem
 
 @Immutable
 data class ReasoningItem(
     override val id: String,
     val text: String,
-    val active: Boolean
+    val durationSeconds: Long? = null,
+    val active: Boolean = false
 ) : ChatItem
 
 @Immutable
@@ -31,6 +43,13 @@ data class ToolItem(
     val display: ToolDisplay,
     val output: String?,
     val status: ToolStatus
+) : ChatItem
+
+@Immutable
+data class CompactionItem(
+    override val id: String,
+    val originalMessageCount: Int,
+    val ts: Long
 ) : ChatItem
 
 @Immutable
@@ -49,6 +68,7 @@ data class ChatMessage(
     val attachments: List<UserAttachment> = emptyList(),
     val items: List<ChatItem> = emptyList(),
     val streaming: Boolean = false,
+    val statusNote: String? = null,
     val error: String? = null,
     val cancelled: Boolean = false
 )

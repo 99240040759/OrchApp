@@ -12,9 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,24 +29,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.InsertDriveFile
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -69,7 +62,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -78,9 +70,7 @@ import coil.request.ImageRequest
 import com.example.data.ArtifactContent
 import com.example.data.ArtifactState
 import com.example.ui.chat.ChatMarkdown
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBackground
-import com.example.ui.theme.OrchBorder
+import com.example.ui.theme.OrchDimens
 import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
@@ -94,7 +84,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactModalBottomSheet(
     state: ArtifactState,
@@ -110,9 +99,9 @@ fun ArtifactModalBottomSheet(
     val canDownload: Boolean
     when (state) {
         is ArtifactState.Ready -> {
-            name = state.metadata.name
-            subtitle = "${state.path}  ·  ${formatBytes(state.metadata.sizeBytes)}"
-            mime = state.metadata.mime.ifBlank { DEFAULT_MIME }
+            name = state.name
+            subtitle = state.sizeBytes?.let { "${state.path}  ·  ${formatBytes(it)}" } ?: state.path
+            mime = state.mime.ifBlank { DEFAULT_MIME }
             canDownload = true
         }
         is ArtifactState.Failed -> {
@@ -135,25 +124,33 @@ fun ArtifactModalBottomSheet(
     }
     val download = { saveLauncher.launch(name) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = OrchBackground,
-        contentColor = OrchTextPrimary,
-        modifier = Modifier.fillMaxSize()
+    OrchBottomSheet(
+        onDismiss = onDismiss,
+        fullScreen = true
     ) {
-        SheetHeader(
+        OrchSheetHeader(
             title = name,
             subtitle = subtitle,
-            saving = saving,
-            canDownload = canDownload,
-            onDownload = download,
-            onClose = onDismiss
+            onClose = onDismiss,
+            actions = {
+                if (saving) {
+                    Box(modifier = Modifier.size(OrchDimens.TouchTarget), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
+                    }
+                } else {
+                    IconButton(onClick = download, enabled = canDownload) {
+                        Icon(
+                            imageVector = Icons.Outlined.Download,
+                            contentDescription = "Download",
+                            tint = if (canDownload) OrchTextPrimary else OrchTextSecondary
+                        )
+                    }
+                }
+            }
         )
-        HorizontalDivider(color = OrchBorder)
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state) {
-                is ArtifactState.Loading -> CenteredSpinner()
+                is ArtifactState.Loading -> OrchCenteredSpinner()
                 is ArtifactState.Failed -> DownloadPanel(
                     title = "Unable to open $name",
                     message = state.message,
@@ -178,65 +175,14 @@ fun ArtifactModalBottomSheet(
 }
 
 @Composable
-private fun SheetHeader(
-    title: String,
-    subtitle: String,
-    saving: Boolean,
-    canDownload: Boolean,
-    onDownload: () -> Unit,
-    onClose: () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, bottom = 8.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = OrchTextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = OrchTextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (saving) {
-            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
-            }
-        } else {
-            IconButton(onClick = onDownload, enabled = canDownload) {
-                Icon(Icons.Outlined.Download, "Download", tint = if (canDownload) OrchTextPrimary else OrchTextSecondary)
-            }
-        }
-        IconButton(onClick = onClose) {
-            Icon(Icons.Rounded.Close, "Close", tint = OrchTextSecondary)
-        }
-    }
-}
-
-@Composable
-private fun CenteredSpinner() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = OrchAccentCoral)
-    }
-}
-
-@Composable
 private fun DownloadPanel(title: String, message: String, saving: Boolean, onDownload: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(OrchDimens.ScreenPadding * 2),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(Icons.Outlined.InsertDriveFile, null, tint = OrchTextSecondary, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(16.dp))
+        Icon(Icons.Outlined.InsertDriveFile, null, tint = OrchTextSecondary, modifier = Modifier.size(44.dp))
+        Spacer(Modifier.height(14.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
@@ -250,20 +196,13 @@ private fun DownloadPanel(title: String, message: String, saving: Boolean, onDow
             color = OrchTextSecondary,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(24.dp))
-        Button(
+        Spacer(Modifier.height(20.dp))
+        OrchPrimaryButton(
+            text = "Download",
             onClick = onDownload,
-            enabled = !saving,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = OrchTextPrimary,
-                contentColor = OrchBackground,
-                disabledContainerColor = OrchBorder
-            )
-        ) {
-            Icon(Icons.Outlined.Download, null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Download")
-        }
+            loading = saving,
+            icon = Icons.Outlined.Download
+        )
     }
 }
 
@@ -380,10 +319,8 @@ private fun PdfViewer(file: File) {
     }
 
     when (val current = load) {
-        PdfLoad.Loading -> CenteredSpinner()
-        is PdfLoad.Failed -> Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-            Text(current.message, style = MaterialTheme.typography.bodyMedium, color = OrchTextSecondary, textAlign = TextAlign.Center)
-        }
+        PdfLoad.Loading -> OrchCenteredSpinner()
+        is PdfLoad.Failed -> OrchEmptyMessage(current.message)
         is PdfLoad.Ready -> PdfPages(current.doc)
     }
 }
@@ -396,8 +333,7 @@ private fun PdfPages(doc: PdfDoc) {
         val cache = remember(doc, widthPx) { PageCache() }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(count = doc.pageCount, key = { it }) { index ->
                 PdfPage(doc, index, widthPx, cache)
@@ -515,11 +451,10 @@ private fun toCodeLines(text: String): List<CodeLine> {
 private fun TextViewer(content: ArtifactContent.Text) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (content.truncated) {
-            Text(
+            OrchBanner(
                 text = "Preview is truncated. Download the file to get all of it.",
-                style = MaterialTheme.typography.labelSmall,
-                color = OrchAccentCoral,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                isError = true,
+                modifier = Modifier.padding(horizontal = OrchDimens.ScreenPadding, vertical = 6.dp)
             )
         }
         if (content.markdown) {
@@ -527,7 +462,7 @@ private fun TextViewer(content: ArtifactContent.Text) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = OrchDimens.ScreenPadding, vertical = 12.dp)
             ) {
                 ChatMarkdown(content.text, streaming = true)
             }
@@ -544,7 +479,7 @@ private fun CodeView(text: String) {
     }
     val ready = lines
     if (ready == null) {
-        CenteredSpinner()
+        OrchCenteredSpinner()
         return
     }
     val style = MaterialTheme.typography.labelMedium
@@ -557,7 +492,7 @@ private fun CodeView(text: String) {
     val horizontal = rememberScrollState()
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(OrchSurface),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
     ) {
         items(ready) { line ->
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -566,9 +501,9 @@ private fun CodeView(text: String) {
                     style = style,
                     color = OrchTextSecondary.copy(alpha = 0.55f),
                     textAlign = TextAlign.End,
-                    modifier = Modifier.width(40.dp)
+                    modifier = Modifier.width(36.dp)
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Box(modifier = Modifier.weight(1f).horizontalScroll(horizontal)) {
                     Text(
                         text = line.text.ifEmpty { " " },

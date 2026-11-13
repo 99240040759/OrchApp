@@ -47,7 +47,7 @@ inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
 }
 
 interface OrchApi {
-    @GET("cloud/models")
+    @GET("models")
     suspend fun models(): List<ModelInfo>
 
     @GET("budget")
@@ -66,6 +66,9 @@ interface OrchApi {
         @Query("before") before: Long?
     ): HistoryPage
 
+    @GET("cloud/sessions/{id}/workspace")
+    suspend fun sessionWorkspace(@Path("id") id: String): Workspace
+
     @DELETE("cloud/sessions/{id}")
     suspend fun deleteSession(@Path("id") id: String)
 
@@ -74,37 +77,47 @@ interface OrchApi {
 
     @GET("cloud/files/list")
     suspend fun files(
-        @Query("sessionId") sessionId: String,
+        @Query("workspace") workspace: String,
         @Query("query") query: String?,
         @Query("limit") limit: Int
     ): List<FileEntry>
 
-    @GET("cloud/files/metadata")
-    suspend fun fileMetadata(
-        @Query("sessionId") sessionId: String,
-        @Query("path") path: String
-    ): FileMetadata
+    @GET("cloud/files/tree")
+    suspend fun fileTree(
+        @Query("workspace") workspace: String,
+        @Query("path") path: String? = null
+    ): DirListing
 
     @GET("cloud/files/text")
     suspend fun fileText(
-        @Query("sessionId") sessionId: String,
+        @Query("workspace") workspace: String,
         @Query("path") path: String
     ): FileContent
 
     @Streaming
     @GET("cloud/files/binary")
     suspend fun fileBinary(
-        @Query("sessionId") sessionId: String,
+        @Query("workspace") workspace: String,
         @Query("path") path: String
     ): ResponseBody
 
     @POST("transcribe")
     suspend fun transcribe(@Body body: TranscribeRequest): TranscribeResponse
+
+    @GET("composio/accounts")
+    suspend fun connectorAccounts(): ConnectorAccountsResponse
+
+    @POST("composio/connect")
+    suspend fun connectConnector(@Body body: ConnectorConnectRequest): ConnectorConnectResponse
+
+    @DELETE("composio/accounts/{id}")
+    suspend fun disconnectConnector(@Path("id") id: String)
 }
 
 class ApiError(
     val status: Int,
-    override val message: String
+    override val message: String,
+    val code: String? = null
 ) : IOException(message) {
     val retryable: Boolean
         get() = status == 0 || status >= 500 || status == 408
@@ -127,8 +140,10 @@ fun parseErrorBody(status: Int, body: String): ApiError {
         is JsonObject -> (error["message"] as? JsonPrimitive)?.contentOrNull
         is JsonPrimitive -> error.contentOrNull
         else -> null
-    }
-    return ApiError(status, message ?: "Request failed (HTTP $status).")
+    } ?: (root?.get("message") as? JsonPrimitive)?.contentOrNull
+    val code = (root?.get("code") as? JsonPrimitive)?.contentOrNull
+        ?: ((root?.get("error") as? JsonObject)?.get("code") as? JsonPrimitive)?.contentOrNull
+    return ApiError(status, message ?: "Request failed (HTTP $status).", code)
 }
 
 private const val RETRY_HEADER = "X-Auth-Retry"

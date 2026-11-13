@@ -18,6 +18,8 @@ data class UserRow(
 data class WorkRow(
     override val key: String,
     val items: List<ChatItem>,
+    val durationSeconds: Long?,
+    val stopped: Boolean,
     val live: Boolean
 ) : ChatRow
 
@@ -29,7 +31,16 @@ data class TextRow(
 ) : ChatRow
 
 @Immutable
-data class PendingRow(override val key: String) : ChatRow
+data class CompactionRow(
+    override val key: String,
+    val originalMessageCount: Int
+) : ChatRow
+
+@Immutable
+data class PendingRow(
+    override val key: String,
+    val label: String = "Thinking"
+) : ChatRow
 
 @Immutable
 data class NoticeRow(
@@ -56,22 +67,50 @@ private fun rowsOf(message: ChatMessage): List<ChatRow> {
 
     val rows = ArrayList<ChatRow>()
     val items = message.items
-    var start = 0
-    while (start < items.size) {
-        val isText = items[start] is TextItem
-        var end = start + 1
-        while (end < items.size && (items[end] is TextItem) == isText) end++
-        val run = items.subList(start, end)
-        val live = message.streaming && end == items.size
-        if (isText) {
-            val text = run.filterIsInstance<TextItem>().joinToString("\n\n") { it.text.trim('\n') }
-            if (text.isNotBlank()) rows += TextRow("${message.id}:t${run.first().id}", text, live)
-        } else {
-            rows += WorkRow("${message.id}:w${run.first().id}", run.toList(), live)
+    var index = 0
+    while (index < items.size) {
+        when (val item = items[index]) {
+            is WorkGroupItem -> {
+                if (item.items.isNotEmpty() || item.active) {
+                    rows += WorkRow(
+                        key = "${message.id}:w:${item.id}",
+                        items = item.items,
+                        durationSeconds = item.durationSeconds,
+                        stopped = item.stopped,
+                        live = message.streaming && item.active
+                    )
+                }
+                index++
+            }
+            is CompactionItem -> {
+                rows += CompactionRow(
+                    key = "${message.id}:k:${item.id}",
+                    originalMessageCount = item.originalMessageCount
+                )
+                index++
+            }
+            is TextItem -> {
+                var end = index + 1
+                while (end < items.size && items[end] is TextItem) end++
+                val run = items.subList(index, end).filterIsInstance<TextItem>()
+                val text = run.joinToString("\n\n") { it.text.trim('\n') }
+                val live = message.streaming && (end == items.size || run.last().active)
+                if (text.isNotBlank()) {
+                    rows += TextRow("${message.id}:t:${run.first().id}", text, live)
+                }
+                index = end
+            }
+            else -> index++
         }
-        start = end
     }
-    if (message.streaming && rows.isEmpty()) rows += PendingRow("${message.id}:p")
+    val note = message.statusNote
+    if (message.streaming) {
+        if (!note.isNullOrBlank()) {
+            rows += PendingRow("${message.id}:n", note)
+        } else if (rows.isEmpty()) {
+            rows += PendingRow("${message.id}:p", "Thinking")
+        }
+    }
     message.error?.let { rows += NoticeRow("${message.id}:e", it, isError = true) }
     if (message.cancelled) rows += NoticeRow("${message.id}:x", "Stopped", isError = false)
     if (!message.streaming) {

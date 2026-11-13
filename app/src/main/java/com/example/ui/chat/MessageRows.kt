@@ -1,7 +1,7 @@
 package com.example.ui.chat
 
-import android.graphics.BitmapFactory
 import android.content.ClipData
+import android.graphics.BitmapFactory
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -68,22 +67,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.chat.ChatRow
+import com.example.chat.CompactionRow
 import com.example.chat.CopyRow
 import com.example.chat.EarlierRow
 import com.example.chat.NoticeRow
 import com.example.chat.PendingRow
 import com.example.chat.ReasoningItem
 import com.example.chat.TextRow
-import com.example.chat.ToolDisplay
-import com.example.chat.ToolIcon
 import com.example.chat.ToolItem
 import com.example.chat.ToolStatus
 import com.example.chat.UserAttachment
 import com.example.chat.UserRow
 import com.example.chat.WorkRow
+import com.example.data.ToolDisplay
+import com.example.data.ToolIcon
+import com.example.ui.components.OrchBanner
 import com.example.ui.theme.OrchAccentCoral
 import com.example.ui.theme.OrchAdded
 import com.example.ui.theme.OrchBorder
+import com.example.ui.theme.OrchDimens
 import com.example.ui.theme.OrchRemoved
 import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchSurfaceElevated
@@ -105,34 +107,35 @@ fun ChatRowView(
         is UserRow -> UserBubble(row, onOpenFile)
         is WorkRow -> WorkBlock(row, onOpenFile)
         is TextRow -> ChatMarkdown(row.text, streaming = row.live)
-        is PendingRow -> StatusLabel("Thinking")
-        is NoticeRow -> Notice(row)
+        is PendingRow -> StatusLabel(row.label)
+        is CompactionRow -> CompactionNotice(row)
+        is NoticeRow -> OrchBanner(text = row.text, isError = row.isError)
         is CopyRow -> CopyAction(row.text)
         is EarlierRow -> EarlierButton(row.loading, row.failed, onLoadEarlier)
     }
 }
 
-private val UserBubbleShape = RoundedCornerShape(14.dp)
 private val Whitespace = Regex("\\s+")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
         horizontalAlignment = Alignment.End,
         modifier = Modifier.fillMaxWidth()
     ) {
         if (row.attachments.isNotEmpty()) {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 row.attachments.forEach { AttachmentChip(it, onOpenFile) }
             }
         }
         if (row.text.isNotBlank()) {
+            val bubbleShape = MaterialTheme.shapes.medium
             SelectionContainer {
                 Text(
                     text = row.text,
@@ -140,10 +143,10 @@ private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
                     color = OrchTextPrimary,
                     modifier = Modifier
                         .widthIn(max = 320.dp)
-                        .clip(UserBubbleShape)
+                        .clip(bubbleShape)
                         .background(OrchSurface)
-                        .border(1.dp, OrchBorder, UserBubbleShape)
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .border(1.dp, OrchBorder, bubbleShape)
+                        .padding(horizontal = OrchDimens.CardPaddingH, vertical = OrchDimens.CardPaddingV)
                 )
             }
         }
@@ -171,12 +174,12 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
         }
     }
     val path = attachment.path
-    val previewModifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp))
+    val previewModifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.extraSmall)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(MaterialTheme.shapes.small)
             .background(OrchSurfaceElevated)
             .then(if (path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
             .padding(6.dp)
@@ -208,16 +211,29 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
     }
 }
 
+private fun formatDuration(seconds: Long): String = when {
+    seconds < 60 -> "${seconds}s"
+    else -> {
+        val m = seconds / 60
+        val s = seconds % 60
+        if (s == 0L) "${m}m" else "${m}m ${s}s"
+    }
+}
+
 @Composable
 private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
     var toggled by rememberSaveable(row.key, row.live) { mutableStateOf<Boolean?>(null) }
     val open = toggled ?: row.live
+    val title = remember(row.durationSeconds, row.stopped) {
+        val base = row.durationSeconds?.takeIf { it > 0 }?.let { "Worked for ${formatDuration(it)}" } ?: "Worked"
+        if (row.stopped) "$base · Stopped" else base
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .clickable { toggled = !open }
                 .padding(vertical = 4.dp)
         ) {
@@ -225,7 +241,7 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
                 StatusLabel("Working")
             } else {
                 Text(
-                    text = "Worked",
+                    text = title,
                     style = MaterialTheme.typography.bodyMedium,
                     color = OrchTextSecondary
                 )
@@ -277,13 +293,17 @@ private fun StatusLabel(text: String) {
 private fun ThinkingBlock(item: ReasoningItem) {
     var toggled by rememberSaveable(item.id, item.active) { mutableStateOf<Boolean?>(null) }
     val open = toggled ?: item.active
-    val label = if (item.active) "Thinking" else "Thought"
+    val label = when {
+        item.active -> "Thinking"
+        item.durationSeconds != null && item.durationSeconds > 0 -> "Thought for ${formatDuration(item.durationSeconds)}"
+        else -> "Thought"
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .clickable { toggled = !open }
                 .padding(vertical = 4.dp)
         ) {
@@ -319,7 +339,7 @@ private fun ToolRow(item: ToolItem, onOpenFile: (String) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
                 .padding(vertical = 4.dp)
         ) {
@@ -359,7 +379,7 @@ private fun ToolRow(item: ToolItem, onOpenFile: (String) -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 220.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(OrchSurface)
                     .verticalScroll(rememberScrollState())
                     .padding(10.dp)
@@ -374,7 +394,7 @@ private fun ToolIcon.vector(): ImageVector = when (this) {
     ToolIcon.Globe -> Icons.Outlined.Language
     ToolIcon.Book -> Icons.Outlined.MenuBook
     ToolIcon.Cpu -> Icons.Outlined.Memory
-    ToolIcon.Stop -> Icons.Outlined.StopCircle
+    ToolIcon.ZapOff -> Icons.Outlined.StopCircle
     ToolIcon.Folder -> Icons.Outlined.Folder
     ToolIcon.File -> Icons.Outlined.InsertDriveFile
 }
@@ -386,7 +406,7 @@ private fun ToolTarget(display: ToolDisplay, onOpenFile: (String) -> Unit, modif
         FileTag(display, filename, onOpenFile, modifier)
         return
     }
-    val target = display.target ?: return
+    val target = display.targetText ?: return
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -406,13 +426,14 @@ private fun ToolTarget(display: ToolDisplay, onOpenFile: (String) -> Unit, modif
 @Composable
 private fun FileTag(display: ToolDisplay, filename: String, onOpenFile: (String) -> Unit, modifier: Modifier) {
     val path = display.fullPath
+    val canOpen = display.opensArtifact && path != null
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .background(OrchSurfaceElevated)
-            .then(if (path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
+            .then(if (canOpen && path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(
@@ -426,35 +447,23 @@ private fun FileTag(display: ToolDisplay, filename: String, onOpenFile: (String)
         display.lineRange?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = OrchTextSecondary)
         }
-        display.added?.takeIf { it > 0 }?.let {
+        display.addedLines?.takeIf { it > 0 }?.let {
             Text("+$it", style = MaterialTheme.typography.labelSmall, color = OrchAdded)
         }
-        display.removed?.takeIf { it > 0 }?.let {
+        display.removedLines?.takeIf { it > 0 }?.let {
             Text("-$it", style = MaterialTheme.typography.labelSmall, color = OrchRemoved)
         }
     }
 }
 
 @Composable
-private fun Notice(row: NoticeRow) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (row.isError) OrchAccentCoral.copy(alpha = 0.12f) else OrchSurface)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        if (row.isError) {
-            Icon(Icons.Rounded.WarningAmber, null, tint = OrchAccentCoral, modifier = Modifier.size(16.dp))
-        }
-        Text(
-            text = row.text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (row.isError) OrchAccentCoral else OrchTextSecondary
-        )
-    }
+private fun CompactionNotice(row: CompactionRow) {
+    Text(
+        text = if (row.originalMessageCount > 0) "Compacted ${row.originalMessageCount} messages" else "Context compacted",
+        style = MaterialTheme.typography.labelMedium,
+        color = OrchTextSecondary,
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }
 
 @Composable
@@ -472,7 +481,7 @@ private fun CopyAction(text: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(MaterialTheme.shapes.small)
             .clickable {
                 scope.launch {
                     clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("response", text)))

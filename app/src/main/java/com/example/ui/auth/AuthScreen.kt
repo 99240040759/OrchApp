@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,9 +60,11 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.example.BuildConfig
 import com.example.R
+import com.example.ui.components.OrchBanner
 import com.example.ui.theme.OrchAccentCoral
 import com.example.ui.theme.OrchBackground
 import com.example.ui.theme.OrchBorder
+import com.example.ui.theme.OrchDimens
 import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
@@ -235,21 +235,8 @@ fun AuthScreen(
                 .fillMaxWidth()
         ) {
             errorMessage?.let { message ->
-                Surface(
-                    color = OrchSurface,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, OrchAccentCoral, RoundedCornerShape(14.dp))
-                ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OrchAccentCoral,
-                        modifier = Modifier.padding(14.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(16.dp))
+                OrchBanner(text = message, isError = true)
+                Spacer(modifier = Modifier.height(OrchDimens.ScreenPadding))
             }
 
             Button(
@@ -272,7 +259,7 @@ fun AuthScreen(
                     }
                 },
                 enabled = !isLoading,
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = OrchSurface,
                     contentColor = OrchTextPrimary,
@@ -281,8 +268,8 @@ fun AuthScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
-                    .border(1.dp, OrchBorder, RoundedCornerShape(16.dp))
+                    .height(52.dp)
+                    .border(1.dp, OrchBorder, MaterialTheme.shapes.medium)
                     .testTag("google_sign_in_button")
             ) {
                 if (isLoading) {

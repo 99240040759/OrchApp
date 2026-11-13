@@ -1,5 +1,6 @@
 package com.example.data
 
+import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -9,7 +10,6 @@ sealed interface ArtifactContent {
     data class Pdf(val file: File) : ArtifactContent
     data class Image(val file: File) : ArtifactContent
     data class Text(val text: String, val truncated: Boolean, val markdown: Boolean) : ArtifactContent
-
     data object DownloadOnly : ArtifactContent
 }
 
@@ -18,8 +18,10 @@ sealed interface ArtifactState {
     data class Loading(val name: String, val path: String) : ArtifactState
     data class Failed(val name: String, val path: String, val message: String) : ArtifactState
     data class Ready(
-        val metadata: FileMetadata,
+        val name: String,
         val path: String,
+        val mime: String,
+        val sizeBytes: Long?,
         val content: ArtifactContent
     ) : ArtifactState
 }
@@ -36,42 +38,90 @@ class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
         root.mkdirs()
     }
 
-    suspend fun load(sessionId: String, path: String): ArtifactState.Ready = withContext(Dispatchers.IO) {
-        val metadata = api.fileMetadata(sessionId, path)
-        val extension = metadata.extension.lowercase().trimStart('.')
-        val mime = metadata.mime.lowercase()
+    suspend fun load(workspace: String, path: String): ArtifactState.Ready = withContext(Dispatchers.IO) {
+        val name = path.trimEnd('/').substringAfterLast('/').ifEmpty { "file" }
+        val extension = name.substringAfterLast('.', "").lowercase()
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
 
-        target(sessionId, path, metadata.name).delete()
+        target(workspace, path, name).delete()
 
-        val content: ArtifactContent = when {
-            extension in DOWNLOAD_ONLY -> ArtifactContent.DownloadOnly
-            extension == "pdf" -> ArtifactContent.Pdf(fetch(sessionId, path, metadata.name))
-            mime.startsWith("image/") && !mime.contains("svg") && extension != "svg" ->
-                ArtifactContent.Image(fetch(sessionId, path, metadata.name))
+        when {
+            extension in DOWNLOAD_ONLY -> ArtifactState.Ready(
+                name = name,
+                path = path,
+                mime = mime,
+                sizeBytes = null,
+                content = ArtifactContent.DownloadOnly
+            )
+            extension == "pdf" -> {
+                val file = fetch(workspace, path, name)
+                ArtifactState.Ready(
+                    name = name,
+                    path = path,
+                    mime = "application/pdf",
+                    sizeBytes = file.length(),
+                    content = ArtifactContent.Pdf(file)
+                )
+            }
+            extension in RASTER_IMAGES -> {
+                val file = fetch(workspace, path, name)
+                ArtifactState.Ready(
+                    name = name,
+                    path = path,
+                    mime = mime,
+                    sizeBytes = file.length(),
+                    content = ArtifactContent.Image(file)
+                )
+            }
             else -> {
-                val text = api.fileText(sessionId, path)
-                ArtifactContent.Text(text.content, text.truncated, extension == "md" || extension == "markdown")
+                val text = try {
+                    api.fileText(workspace, path)
+                } catch (failure: Throwable) {
+                    val apiError = failure.toApiError()
+                    if (apiError.status == 400 && apiError.message.contains("binary", ignoreCase = true)) {
+                        return@withContext ArtifactState.Ready(
+                            name = name,
+                            path = path,
+                            mime = mime,
+                            sizeBytes = null,
+                            content = ArtifactContent.DownloadOnly
+                        )
+                    }
+                    throw failure
+                }
+                val displayPath = text.path.ifBlank { path }
+                val bytes = if (text.truncated) null else text.content.toByteArray().size.toLong()
+                ArtifactState.Ready(
+                    name = name,
+                    path = displayPath,
+                    mime = mime,
+                    sizeBytes = bytes,
+                    content = ArtifactContent.Text(
+                        text = text.content,
+                        truncated = text.truncated,
+                        markdown = extension == "md" || extension == "markdown"
+                    )
+                )
             }
         }
-        ArtifactState.Ready(metadata, path, content)
     }
 
-    suspend fun download(sessionId: String, path: String, name: String): File =
+    suspend fun download(workspace: String, path: String, name: String): File =
         withContext(Dispatchers.IO) {
-            target(sessionId, path, name).takeIf { it.isFile && it.length() > 0 } ?: fetch(sessionId, path, name)
+            target(workspace, path, name).takeIf { it.isFile && it.length() > 0 } ?: fetch(workspace, path, name)
         }
 
-    private fun target(sessionId: String, path: String, name: String): File {
-        val folder = UUID.nameUUIDFromBytes("$sessionId|$path".toByteArray()).toString()
+    private fun target(workspace: String, path: String, name: String): File {
+        val folder = UUID.nameUUIDFromBytes("$workspace|$path".toByteArray()).toString()
         val safe = name.replace(UNSAFE, "_").trim('.').take(100).ifEmpty { "file" }
         return File(File(root, folder).apply { mkdirs() }, safe)
     }
 
-    private suspend fun fetch(sessionId: String, path: String, name: String): File {
-        val file = target(sessionId, path, name)
+    private suspend fun fetch(workspace: String, path: String, name: String): File {
+        val file = target(workspace, path, name)
         val partial = File(file.parentFile, file.name + ".part")
         try {
-            api.fileBinary(sessionId, path).use { body ->
+            api.fileBinary(workspace, path).use { body ->
                 body.byteStream().use { input -> partial.outputStream().use { input.copyTo(it) } }
             }
         } catch (failure: Throwable) {
@@ -85,6 +135,10 @@ class ArtifactLoader(private val api: OrchApi, cacheDir: File) {
 
     private companion object {
         val UNSAFE = Regex("[^A-Za-z0-9._-]")
+
+        val RASTER_IMAGES = setOf(
+            "png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "heic", "heif", "avif"
+        )
 
         val DOWNLOAD_ONLY = setOf(
             "docx", "doc", "xlsx", "xls", "xlsm", "pptx", "ppt", "odt", "ods", "odp", "rtf",

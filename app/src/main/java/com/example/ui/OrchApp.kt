@@ -1,6 +1,8 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -34,11 +36,12 @@ import com.example.ui.sheets.AccountSheet
 import com.example.ui.sheets.AttachmentSheet
 import com.example.ui.sheets.FilesSheet
 import com.example.ui.sheets.ModelSheet
+import com.example.ui.sheets.TerminalSheet
 import com.example.ui.theme.OrchBackground
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private enum class Sheet { None, Attach, Files, Models, Account }
+private enum class Sheet { None, Attach, Files, Terminal, Models, Account }
 
 @Composable
 fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: String?) {
@@ -58,13 +61,16 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
     val chat by vm.chat.collectAsStateWithLifecycle()
     val models by vm.models.collectAsStateWithLifecycle()
     val selectedModelId by vm.selectedModelId.collectAsStateWithLifecycle()
+    val thinkingEffort by vm.thinkingEffort.collectAsStateWithLifecycle()
     val budget by vm.budget.collectAsStateWithLifecycle()
     val attachments by vm.attachments.collectAsStateWithLifecycle()
     val files by vm.files.collectAsStateWithLifecycle()
+    val connectors by vm.connectors.collectAsStateWithLifecycle()
+    val terminal by vm.terminalState.collectAsStateWithLifecycle()
     val artifact by vm.artifact.collectAsStateWithLifecycle()
     val saving by vm.saving.collectAsStateWithLifecycle()
 
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onForeground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onForeground() }
     LaunchedEffect(vm) { vm.notices.collectLatest { snackbar.showSnackbar(it) } }
     LaunchedEffect(vm) {
         vm.saveResults.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
@@ -110,9 +116,11 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
             attachments = attachments,
             models = models,
             selectedModelId = selectedModelId,
+            thinkingEffort = thinkingEffort,
             snackbar = snackbar,
             onMenu = { scope.launch { drawerState.open() } },
-            onNewChat = vm::newChat,
+            onOpenExplorer = { sheet = Sheet.Files },
+            onOpenTerminal = { sheet = Sheet.Terminal },
             onSend = vm::send,
             onStop = vm::stop,
             onAttach = { sheet = Sheet.Attach },
@@ -129,6 +137,7 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
         Sheet.None -> Unit
         Sheet.Attach -> AttachmentSheet(
             chat = chat,
+            connectors = connectors,
             onPickImages = {
                 sheet = Sheet.None
                 imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -137,22 +146,55 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
                 sheet = Sheet.None
                 filePicker.launch(arrayOf("*/*"))
             },
-            onOpenExplorer = { sheet = Sheet.Files },
             onConnectRepo = vm::connectRepo,
             onEditRepo = vm::clearRepoError,
             onDisconnectRepo = vm::disconnectRepo,
+            onRefreshConnectors = vm::loadConnectors,
+            onToggleConnector = vm::toggleConnector,
+            onConnectConnector = { id ->
+                vm.connectConnector(id) { url ->
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }.onFailure {
+                        Toast.makeText(context, "Unable to open browser.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDisconnectConnector = vm::disconnectConnector,
             onDismiss = { sheet = Sheet.None }
         )
         Sheet.Files -> FilesSheet(
+            repoName = chat.repo?.name ?: "Workspace",
             files = files,
-            onQuery = vm::loadFiles,
+            onBrowse = vm::browseFiles,
+            onNavigateUp = vm::browseUp,
             onOpen = vm::openFile,
             onDismiss = { sheet = Sheet.None }
         )
+        Sheet.Terminal -> {
+            val repo = chat.repo
+            if (repo != null) {
+                TerminalSheet(
+                    repoName = repo.name,
+                    workspace = repo.workspace,
+                    terminal = terminal,
+                    onConnect = vm::connectTerminal,
+                    onInput = vm::sendTerminalInput,
+                    onResize = vm::resizeTerminal,
+                    onClear = vm::clearTerminal,
+                    onDisconnect = vm::disconnectTerminal,
+                    onDismiss = { sheet = Sheet.None }
+                )
+            } else {
+                sheet = Sheet.None
+            }
+        }
         Sheet.Models -> ModelSheet(
             models = models,
             selectedId = selectedModelId,
-            onSelect = vm::selectModel,
+            thinkingEffort = thinkingEffort,
+            onSelectModel = vm::selectModel,
+            onSelectThinkingEffort = vm::selectThinkingEffort,
             onDismiss = { sheet = Sheet.None }
         )
         Sheet.Account -> AccountSheet(

@@ -21,6 +21,10 @@ import com.example.data.AttachmentSource
 import com.example.data.Budget
 import com.example.data.CancelRequest
 import com.example.data.ChatRequest
+import com.example.data.ConnectorAccount
+import com.example.data.ConnectorCatalog
+import com.example.data.ConnectorConnectRequest
+import com.example.data.ConnectorDefinition
 import com.example.data.FileEntry
 import com.example.data.ModelInfo
 import com.example.data.OrchClient
@@ -28,10 +32,14 @@ import com.example.data.OrchPreferences
 import com.example.data.OrchStream
 import com.example.data.SessionSummary
 import com.example.data.SseFrame
+import com.example.data.ThinkingEffort
 import com.example.data.TranscribeRequest
+import com.example.data.TreeEntry
 import com.example.data.WorkspaceInit
 import com.example.data.runCatchingSuspend
 import com.example.data.toApiError
+import com.example.terminal.SandboxTerminal
+import com.example.terminal.TerminalUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,6 +56,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.util.UUID
 import kotlin.math.min
 
@@ -77,10 +87,33 @@ data class PendingAttachment(
 
 @Immutable
 data class FilesUi(
-    val entries: List<FileEntry> = emptyList(),
+    val currentPath: String = "",
+    val query: String = "",
+    val treeEntries: List<TreeEntry> = emptyList(),
+    val treeTruncated: Boolean = false,
+    val searchEntries: List<FileEntry> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null
 )
+
+@Immutable
+data class ConnectorItemUi(
+    val definition: ConnectorDefinition,
+    val accountId: String? = null,
+    val connected: Boolean = false,
+    val active: Boolean = false,
+    val busy: Boolean = false
+)
+
+@Immutable
+data class ConnectorsUi(
+    val items: List<ConnectorItemUi> = ConnectorCatalog.all.map { ConnectorItemUi(it) },
+    val loading: Boolean = false,
+    val error: String? = null
+) {
+    val activeIds: List<String>
+        get() = items.filter { it.connected && it.active }.map { it.definition.id }
+}
 
 class OrchViewModel(application: Application) : AndroidViewModel(application) {
     private val client = OrchClient()
@@ -88,6 +121,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     private val stream = OrchStream(client, application.cacheDir)
     private val preferences = OrchPreferences(application)
     private val artifactLoader = ArtifactLoader(api, application.cacheDir)
+    private val terminal = SandboxTerminal(client)
     private val resolver = application.contentResolver
     private val reducer = ChatReducer()
 
@@ -99,6 +133,9 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedModelId = MutableStateFlow("")
     val selectedModelId: StateFlow<String> = _selectedModelId.asStateFlow()
+
+    private val _thinkingEffort = MutableStateFlow(ThinkingEffort.Medium)
+    val thinkingEffort: StateFlow<ThinkingEffort> = _thinkingEffort.asStateFlow()
 
     private val _budget = MutableStateFlow<Budget?>(null)
     val budget: StateFlow<Budget?> = _budget.asStateFlow()
@@ -112,11 +149,16 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     private val _files = MutableStateFlow(FilesUi())
     val files: StateFlow<FilesUi> = _files.asStateFlow()
 
+    private val _connectors = MutableStateFlow(ConnectorsUi())
+    val connectors: StateFlow<ConnectorsUi> = _connectors.asStateFlow()
+
     private val _artifact = MutableStateFlow<ArtifactState>(ArtifactState.Hidden)
     val artifact: StateFlow<ArtifactState> = _artifact.asStateFlow()
 
     private val _saving = MutableStateFlow(false)
     val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
+    val terminalState: StateFlow<TerminalUi> = terminal.state
 
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
@@ -130,16 +172,21 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     private var historyJob: Job? = null
     private var artifactJob: Job? = null
     private var modelsJob: Job? = null
+    private var connectorsJob: Job? = null
     private var publishJob: Job? = null
     private var earliestSeq: Long? = null
     private var hasMore = false
     private var loadingEarlier = false
     private var earlierFailed = false
     private var pagingGeneration = 0
+    private var pendingConnectToolkit: String? = null
+    private var lastLoadedAccounts: List<ConnectorAccount> = emptyList()
     private val deleting = HashSet<String>()
 
     init {
+        loadPreferences()
         loadModels(reportFailure = true)
+        loadConnectors()
     }
 
     private fun newSessionId(): String = UUID.randomUUID().toString()
@@ -150,6 +197,14 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun report(error: Throwable) {
         notice(error.toApiError().message)
+    }
+
+    private fun loadPreferences() {
+        viewModelScope.launch {
+            _thinkingEffort.value = preferences.thinkingEffort.first()
+            val savedActive = preferences.activeConnectors.first()
+            rebuildConnectors(lastLoadedAccounts, savedActive, loading = _connectors.value.loading, error = _connectors.value.error)
+        }
     }
 
     private fun loadModels(reportFailure: Boolean) {
@@ -171,6 +226,111 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     fun selectModel(id: String) {
         _selectedModelId.value = id
         viewModelScope.launch { preferences.setModelId(id) }
+    }
+
+    fun selectThinkingEffort(effort: ThinkingEffort) {
+        _thinkingEffort.value = effort
+        viewModelScope.launch { preferences.setThinkingEffort(effort) }
+    }
+
+    fun loadConnectors() {
+        if (connectorsJob?.isActive == true) return
+        connectorsJob = viewModelScope.launch {
+            _connectors.update { it.copy(loading = true, error = null) }
+            val savedActive = preferences.activeConnectors.first().toMutableSet()
+            runCatchingSuspend { api.connectorAccounts() }
+                .onSuccess { response ->
+                    lastLoadedAccounts = response.accounts
+                    val pending = pendingConnectToolkit
+                    if (pending != null && response.accounts.any { it.toolkit.equals(pending, ignoreCase = true) }) {
+                        savedActive += pending
+                        pendingConnectToolkit = null
+                        preferences.setActiveConnectors(savedActive)
+                    }
+                    rebuildConnectors(response.accounts, savedActive, loading = false, error = null)
+                }
+                .onFailure { error ->
+                    _connectors.update { it.copy(loading = false, error = error.toApiError().message) }
+                }
+        }
+    }
+
+    private fun rebuildConnectors(
+        accounts: List<ConnectorAccount>,
+        activeSet: Set<String>,
+        loading: Boolean,
+        error: String?
+    ) {
+        val byToolkit = accounts.associateBy { it.toolkit.lowercase() }
+        val busyMap = _connectors.value.items.associate { it.definition.id to it.busy }
+        _connectors.value = ConnectorsUi(
+            items = ConnectorCatalog.all.map { def ->
+                val account = byToolkit[def.id]
+                ConnectorItemUi(
+                    definition = def,
+                    accountId = account?.id,
+                    connected = account != null,
+                    active = account != null && def.id in activeSet,
+                    busy = busyMap[def.id] == true
+                )
+            },
+            loading = loading,
+            error = error
+        )
+    }
+
+    fun toggleConnector(id: String) {
+        val item = _connectors.value.items.firstOrNull { it.definition.id == id } ?: return
+        if (!item.connected) return
+        val nextActive = _connectors.value.items
+            .filter { it.connected && if (it.definition.id == id) !it.active else it.active }
+            .mapTo(HashSet()) { it.definition.id }
+        rebuildConnectors(lastLoadedAccounts, nextActive, loading = _connectors.value.loading, error = _connectors.value.error)
+        viewModelScope.launch { preferences.setActiveConnectors(nextActive) }
+    }
+
+    fun connectConnector(id: String, onOpenUrl: (String) -> Unit) {
+        setConnectorBusy(id, true)
+        viewModelScope.launch {
+            runCatchingSuspend { api.connectConnector(ConnectorConnectRequest(id)) }
+                .onSuccess { response ->
+                    pendingConnectToolkit = id
+                    setConnectorBusy(id, false)
+                    onOpenUrl(response.redirectUrl)
+                }
+                .onFailure { error ->
+                    setConnectorBusy(id, false)
+                    report(error)
+                }
+        }
+    }
+
+    fun disconnectConnector(id: String, accountId: String) {
+        setConnectorBusy(id, true)
+        viewModelScope.launch {
+            runCatchingSuspend { api.disconnectConnector(accountId) }
+                .onSuccess {
+                    lastLoadedAccounts = lastLoadedAccounts.filterNot { it.id == accountId || it.toolkit.equals(id, ignoreCase = true) }
+                    val nextActive = preferences.activeConnectors.first().toMutableSet().apply { remove(id) }
+                    preferences.setActiveConnectors(nextActive)
+                    setConnectorBusy(id, false)
+                    rebuildConnectors(lastLoadedAccounts, nextActive, loading = false, error = null)
+                }
+                .onFailure { error ->
+                    setConnectorBusy(id, false)
+                    report(error)
+                }
+        }
+    }
+
+    private fun setConnectorBusy(id: String, busy: Boolean) {
+        _connectors.update { state ->
+            state.copy(
+                items = state.items.map {
+                    if (it.definition.id == id) it.copy(busy = busy) else it
+                }
+            )
+        }
     }
 
     private suspend fun loadSessions(): List<SessionSummary>? {
@@ -195,6 +355,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
     fun onForeground() {
         refreshBudget()
         if (_models.value.isEmpty()) loadModels(reportFailure = false)
+        loadConnectors()
         viewModelScope.launch {
             val remote = loadSessions() ?: return@launch
             val current = _chat.value
@@ -221,11 +382,12 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         resetPaging()
         if (!sameSession) _attachments.value = emptyList()
         val summary = _sessions.value.firstOrNull { it.id == id }
+        val initialRepo = Repo.fromWorkspacePath(summary?.workspacePath) ?: _chat.value.repo.takeIf { sameSession }
         reducer.setContextTokens(summary?.contextTokens ?: 0)
         _chat.value = ChatUi(
             sessionId = id,
             loading = true,
-            repo = Repo.fromWorkspacePath(summary?.workspacePath),
+            repo = initialRepo,
             contextTokens = summary?.contextTokens ?: 0
         )
         historyJob = viewModelScope.launch {
@@ -236,11 +398,18 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                 _chat.update { ui -> ui.copy(loading = false, loadFailed = true) }
                 return@launch
             }
-            val running = list.await()?.firstOrNull { it.id == id }?.running ?: (summary?.running == true)
+            val remoteSummary = list.await()?.firstOrNull { it.id == id }
+            val running = remoteSummary?.running ?: (summary?.running == true)
+            val resolvedRepo = Repo.fromWorkspacePath(remoteSummary?.workspacePath ?: summary?.workspacePath)
+                ?: _chat.value.repo
+                ?: runCatchingSuspend { api.sessionWorkspace(id) }.getOrNull()?.let { ws ->
+                    Repo(ws.workspace, ws.repoUrl)
+                }
+            remoteSummary?.contextTokens?.let { reducer.setContextTokens(it) }
             reducer.load(page.records)
             earliestSeq = page.earliestSeq
             hasMore = page.hasMore
-            _chat.update { it.copy(loading = false) }
+            _chat.update { it.copy(loading = false, repo = resolvedRepo) }
             if (running) {
                 reducer.beginFollow()
                 publishNow()
@@ -301,7 +470,10 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                 .onSuccess { workspace ->
                     _chat.update {
                         if (it.sessionId != id) it
-                        else it.copy(connecting = false, repo = Repo(workspace.workspace, workspace.repoUrl))
+                        else it.copy(
+                            connecting = false,
+                            repo = Repo(workspace.workspace, workspace.repoUrl)
+                        )
                     }
                 }
                 .onFailure { error ->
@@ -373,6 +545,8 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         }
         val id = ui.sessionId
         val sources = pending.map { item -> AttachmentSource(item.name) { resolver.openInputStream(item.uri) } }
+        val activeConnectors = _connectors.value.activeIds
+        val effort = if (model.supportsThinking) _thinkingEffort.value.wire else ThinkingEffort.Medium.wire
         reducer.beginTurn(
             prompt,
             pending.map { UserAttachment(name = it.name, previewUri = if (it.isImage) it.uri.toString() else null) }
@@ -388,8 +562,10 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                         sessionId = id,
                         prompt = prompt,
                         model = model.id,
-                        workspace = ui.repo?.workspace,
-                        repoUrl = ui.repo?.repoUrl
+                        workspace = ui.repo?.workspace.orEmpty(),
+                        repoUrl = ui.repo?.repoUrl,
+                        activeConnectors = activeConnectors,
+                        thinkingEffort = effort
                     ),
                     sources
                 )
@@ -416,6 +592,8 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
             var received = false
             var finished = false
             var reloaded = false
+            var resynced = false
+            var tailError: String? = null
             while (!finished) {
                 val error: ApiError? = try {
                     open(lastId, retry).collect { frame ->
@@ -423,8 +601,22 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                         received = true
                         failures = 0
                         when {
-                            frame.type == "orch.resync" -> lastId = 0
-                            frame.id != null && frame.id > lastId -> lastId = frame.id
+                            frame.type == "resync" -> {
+                                lastId = 0
+                                resynced = true
+                            }
+                            frame.id != null && frame.id > lastId -> {
+                                lastId = frame.id
+                                resynced = false
+                            }
+                        }
+                        if (frame.type in LIVE_STEP_EVENTS) resynced = false
+                        if (resynced && frame.type == "error") {
+                            tailError = (frame.data["message"] as? JsonPrimitive)?.contentOrNull
+                                ?: (frame.data["error"] as? JsonPrimitive)?.contentOrNull
+                        }
+                        if (frame.type == "fileWritten") {
+                            onFileWritten((frame.data["path"] as? JsonPrimitive)?.contentOrNull)
                         }
                         reducer.onFrame(frame.type, frame.data)
                         if (frame.type == "done") finished = true
@@ -448,10 +640,24 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
                 retry = true
             }
             if (reloaded) return@launch
+            if (resynced) {
+                refreshBudget()
+                openSession(sessionId, force = true)
+                tailError?.let(::notice)
+                return@launch
+            }
             publishNow()
             markIdle(sessionId)
             refreshBudget()
             trackTitle(sessionId)
+        }
+    }
+
+    private fun onFileWritten(path: String?) {
+        if (path.isNullOrBlank()) return
+        val current = _files.value
+        if (current.treeEntries.isNotEmpty() || current.searchEntries.isNotEmpty()) {
+            browseFiles(current.currentPath, current.query)
         }
     }
 
@@ -505,6 +711,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         filesJob?.cancel()
         artifactJob?.cancel()
         publishJob?.cancel()
+        terminal.disconnect()
         _files.value = FilesUi()
         _artifact.value = ArtifactState.Hidden
     }
@@ -545,28 +752,85 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadFiles(query: String) {
-        val id = _chat.value.sessionId
+    fun browseFiles(path: String = _files.value.currentPath, query: String = _files.value.query) {
+        val workspace = _chat.value.repo?.workspace
         filesJob?.cancel()
+        if (workspace.isNullOrBlank()) {
+            _files.value = FilesUi(currentPath = path, query = query, loading = false, error = null)
+            return
+        }
         filesJob = viewModelScope.launch {
-            _files.update { it.copy(loading = true, error = null) }
-            if (query.isNotBlank()) delay(250)
-            runCatchingSuspend { api.files(id, query.ifBlank { null }, FILE_LIST_LIMIT) }
-                .onSuccess { entries -> _files.update { it.copy(entries = entries, loading = false, error = null) } }
-                .onFailure { error ->
-                    _files.update { it.copy(entries = emptyList(), loading = false, error = error.toApiError().message) }
-                }
+            _files.update {
+                it.copy(
+                    currentPath = path,
+                    query = query,
+                    loading = true,
+                    error = null
+                )
+            }
+            if (query.isNotBlank()) {
+                delay(250)
+                runCatchingSuspend { api.files(workspace, query.trim(), FILE_LIST_LIMIT) }
+                    .onSuccess { entries ->
+                        _files.update {
+                            it.copy(
+                                searchEntries = entries,
+                                loading = false,
+                                error = null
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        _files.update {
+                            it.copy(
+                                searchEntries = emptyList(),
+                                loading = false,
+                                error = error.toApiError().message
+                            )
+                        }
+                    }
+            } else {
+                runCatchingSuspend { api.fileTree(workspace, path.ifBlank { null }) }
+                    .onSuccess { listing ->
+                        _files.update {
+                            it.copy(
+                                treeEntries = listing.entries,
+                                treeTruncated = listing.truncated,
+                                searchEntries = emptyList(),
+                                loading = false,
+                                error = null
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        _files.update {
+                            it.copy(
+                                treeEntries = emptyList(),
+                                treeTruncated = false,
+                                loading = false,
+                                error = error.toApiError().message
+                            )
+                        }
+                    }
+            }
         }
     }
 
+    fun browseUp() {
+        val current = _files.value.currentPath.trimEnd('/')
+        if (current.isEmpty()) return
+        val parent = current.substringBeforeLast('/', "")
+        browseFiles(path = parent, query = "")
+    }
+
     fun openFile(path: String) {
-        val id = _chat.value.sessionId
+        val workspace = _chat.value.repo?.workspace ?: return
         val name = path.trimEnd('/').substringAfterLast('/')
         artifactJob?.cancel()
         _artifact.value = ArtifactState.Loading(name, path)
         artifactJob = viewModelScope.launch {
             _artifact.value = try {
-                artifactLoader.load(id, path)
+                artifactLoader.load(workspace, path)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -582,17 +846,17 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveArtifact(destination: Uri) {
         val (path, name) = when (val state = _artifact.value) {
-            is ArtifactState.Ready -> state.path to state.metadata.name
+            is ArtifactState.Ready -> state.path to state.name
             is ArtifactState.Failed -> state.path to state.name
             else -> return
         }
         if (_saving.value) return
-        val id = _chat.value.sessionId
+        val workspace = _chat.value.repo?.workspace ?: return
         _saving.value = true
         viewModelScope.launch {
             val message = try {
                 withContext(Dispatchers.IO) {
-                    val file = artifactLoader.download(id, path, name)
+                    val file = artifactLoader.download(workspace, path, name)
                     val output = resolver.openOutputStream(destination, "wt")
                         ?: throw ApiError(-1, "Unable to write the file.")
                     output.use { sink -> file.inputStream().use { it.copyTo(sink) } }
@@ -609,6 +873,26 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun connectTerminal(workspace: String, cols: Int, rows: Int) {
+        terminal.connect(workspace, cols, rows)
+    }
+
+    fun sendTerminalInput(data: String) {
+        terminal.sendInput(data)
+    }
+
+    fun resizeTerminal(cols: Int, rows: Int) {
+        terminal.resize(cols, rows)
+    }
+
+    fun clearTerminal() {
+        terminal.clearOutput()
+    }
+
+    fun disconnectTerminal() {
+        terminal.disconnect()
+    }
+
     suspend fun transcribe(audioBase64: String, format: String): String? =
         runCatchingSuspend { api.transcribe(TranscribeRequest(audioBase64, format)).text.trim() }
             .onFailure(::report)
@@ -616,6 +900,7 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
             ?.takeIf { it.isNotEmpty() }
 
     override fun onCleared() {
+        terminal.disconnect()
         artifactLoader.clear()
         client.http.dispatcher.cancelAll()
         client.http.connectionPool.evictAll()
@@ -630,6 +915,13 @@ class OrchViewModel(application: Application) : AndroidViewModel(application) {
         private const val TITLE_RETRY_MS = 2000L
         private const val MAX_ATTACHMENT_BYTES = 18L * 1024 * 1024
         private const val FILE_LIST_LIMIT = 500
+        private val LIVE_STEP_EVENTS = setOf(
+            "workStart",
+            "reasoningStart",
+            "reasoningDelta",
+            "toolStart",
+            "textDelta"
+        )
 
         fun factory(application: Application) = viewModelFactory {
             initializer { OrchViewModel(application) }

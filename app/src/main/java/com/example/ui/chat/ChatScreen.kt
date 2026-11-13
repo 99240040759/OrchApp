@@ -10,8 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,10 +26,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,17 +37,16 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,10 +62,14 @@ import com.example.chat.CopyRow
 import com.example.chat.EarlierRow
 import com.example.chat.UserRow
 import com.example.data.ModelInfo
+import com.example.data.ThinkingEffort
 import com.example.ui.ChatUi
 import com.example.ui.PendingAttachment
+import com.example.ui.components.OrchCenteredSpinner
+import com.example.ui.components.OrchEmptyMessage
 import com.example.ui.theme.OrchBackground
 import com.example.ui.theme.OrchBorder
+import com.example.ui.theme.OrchDimens
 import com.example.ui.theme.OrchSurface
 import com.example.ui.theme.OrchTextPrimary
 import com.example.ui.theme.OrchTextSecondary
@@ -88,9 +91,11 @@ fun ChatScreen(
     attachments: List<PendingAttachment>,
     models: List<ModelInfo>,
     selectedModelId: String,
+    thinkingEffort: ThinkingEffort,
     snackbar: SnackbarHostState,
     onMenu: () -> Unit,
-    onNewChat: () -> Unit,
+    onOpenExplorer: () -> Unit,
+    onOpenTerminal: () -> Unit,
     onSend: (String) -> Boolean,
     onStop: () -> Unit,
     onAttach: () -> Unit,
@@ -109,8 +114,15 @@ fun ChatScreen(
             0f
         }
     }
-    val modelLabel = remember(model) {
-        model?.let { listOfNotNull(it.name, it.badge).joinToString(" · ") } ?: "Model"
+    val modelLabel = remember(model, thinkingEffort) {
+        model?.let {
+            val parts = buildList {
+                add(it.name)
+                it.badge?.let(::add)
+                if (it.supportsThinking) add(thinkingEffort.shortLabel)
+            }
+            parts.joinToString(" · ")
+        } ?: "Model"
     }
 
     Column(
@@ -118,7 +130,13 @@ fun ChatScreen(
             .fillMaxSize()
             .background(OrchBackground)
     ) {
-        TopBar(title, onMenu, onNewChat)
+        TopBar(
+            title = title,
+            hasWorkspace = chat.repo != null,
+            onMenu = onMenu,
+            onOpenExplorer = onOpenExplorer,
+            onOpenTerminal = onOpenTerminal
+        )
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             MessageList(
                 chat = chat,
@@ -158,15 +176,21 @@ fun ChatScreen(
 }
 
 @Composable
-private fun TopBar(title: String, onMenu: () -> Unit, onNewChat: () -> Unit) {
+private fun TopBar(
+    title: String,
+    hasWorkspace: Boolean,
+    onMenu: () -> Unit,
+    onOpenExplorer: () -> Unit,
+    onOpenTerminal: () -> Unit
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .background(OrchBackground)
             .statusBarsPadding()
-            .height(56.dp)
-            .padding(horizontal = 4.dp)
+            .height(OrchDimens.TopBarHeight)
+            .padding(horizontal = OrchDimens.TightGap)
     ) {
         IconButton(onClick = onMenu) {
             Icon(Icons.Rounded.Menu, "Sessions", tint = OrchTextPrimary)
@@ -179,8 +203,19 @@ private fun TopBar(title: String, onMenu: () -> Unit, onNewChat: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
         )
-        IconButton(onClick = onNewChat) {
-            Icon(Icons.Outlined.EditNote, "New chat", tint = OrchTextPrimary)
+        IconButton(onClick = onOpenExplorer, enabled = hasWorkspace) {
+            Icon(
+                imageVector = Icons.Outlined.FolderOpen,
+                contentDescription = "File explorer",
+                tint = if (hasWorkspace) OrchTextPrimary else OrchTextSecondary.copy(alpha = 0.4f)
+            )
+        }
+        IconButton(onClick = onOpenTerminal, enabled = hasWorkspace) {
+            Icon(
+                imageVector = Icons.Outlined.Terminal,
+                contentDescription = "Terminal",
+                tint = if (hasWorkspace) OrchTextPrimary else OrchTextSecondary.copy(alpha = 0.4f)
+            )
         }
     }
 }
@@ -248,7 +283,7 @@ private fun MessageList(
             }
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = BottomGap),
+                contentPadding = PaddingValues(start = OrchDimens.ScreenPadding, end = OrchDimens.ScreenPadding, top = 12.dp, bottom = BottomGap),
                 modifier = Modifier.fillMaxSize()
             ) {
                 itemsIndexed(
@@ -297,41 +332,18 @@ private fun MessageList(
 
 @Composable
 private fun EmptyState(chat: ChatUi, onRetryLoad: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        when {
-            chat.loading -> CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp,
-                color = OrchTextSecondary
-            )
-            chat.loadFailed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Couldn't load this chat",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OrchTextSecondary,
-                    textAlign = TextAlign.Center
-                )
-                TextButton(onClick = onRetryLoad) {
-                    Text("Try again", color = OrchTextPrimary)
-                }
-            }
-            chat.canSend -> Text(
-                text = chat.repo?.let { "What should we work on in ${it.name}?" } ?: "Start the conversation",
-                style = MaterialTheme.typography.titleMedium,
-                color = OrchTextSecondary,
-                textAlign = TextAlign.Center
-            )
-            else -> Text(
-                text = "Tap + and connect a GitHub repository to start",
-                style = MaterialTheme.typography.titleMedium,
-                color = OrchTextSecondary,
-                textAlign = TextAlign.Center
-            )
-        }
+    when {
+        chat.loading -> OrchCenteredSpinner()
+        chat.loadFailed -> OrchEmptyMessage(
+            text = "Couldn't load this chat",
+            actionLabel = "Try again",
+            onAction = onRetryLoad
+        )
+        chat.canSend -> OrchEmptyMessage(
+            text = chat.repo?.let { "What should we work on in ${it.name}?" } ?: "Start the conversation"
+        )
+        else -> OrchEmptyMessage(
+            text = "Tap + and connect a GitHub repository to start"
+        )
     }
 }

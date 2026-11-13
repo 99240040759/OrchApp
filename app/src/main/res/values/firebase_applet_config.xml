@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="default_web_client_id" translatable="false">693047181061-vlhi4ii9pgohsb3qhpqratsu2g9tlm0p.apps.googleusercontent.com</string>
+    <string name="gcm_defaultSenderId" translatable="false">693047181061</string>
+    <string name="google_api_key" translatable="false">AIzaSyA_9Z9TTa0v6Lq3LWhSRTzpUBML1vuubME</string>
+    <string name="google_app_id" translatable="false">1:693047181061:android:026ceaf9465cacc7fbc16c</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyA_9Z9TTa0v6Lq3LWhSRTzpUBML1vuubME</string>
+    <string name="google_storage_bucket" translatable="false">orchllc.firebasestorage.app</string>
+    <string name="project_id" translatable="false">orchllc</string>
+</resources>
