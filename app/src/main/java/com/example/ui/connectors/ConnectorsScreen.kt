@@ -2,6 +2,7 @@ package com.example.ui.connectors
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,12 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.outlined.CloudQueue
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Forum
-import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -41,7 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -191,24 +187,10 @@ private fun ConnectorCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             OrchIconBadge(
-                size = 42.dp,
+                size = 44.dp,
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
-                if (def.id == "github") {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_github_logo),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        imageVector = connectorIcon(def.id),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                ConnectorLogo(id = def.id)
             }
             Column(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -302,11 +284,39 @@ private fun ConnectorCard(
     }
 }
 
-private fun connectorIcon(id: String): ImageVector = when (id) {
-    "googledrive" -> Icons.Outlined.CloudQueue
-    "gmail" -> Icons.Outlined.Email
-    "notion" -> Icons.Outlined.Description
-    "slack" -> Icons.Outlined.Forum
-    "jira" -> Icons.Outlined.TaskAlt
-    else -> Icons.Outlined.Extension
+@Composable
+private fun ConnectorLogo(id: String) {
+    when (id) {
+        "github" -> Icon(
+            painter = painterResource(R.drawable.ic_github_logo),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(24.dp)
+        )
+        else -> {
+            val logoRes = when (id) {
+                "googledrive" -> R.drawable.ic_connector_googledrive
+                "gmail" -> R.drawable.ic_connector_gmail
+                "notion" -> R.drawable.ic_connector_notion
+                "slack" -> R.drawable.ic_connector_slack
+                "jira" -> R.drawable.ic_connector_jira
+                else -> null
+            }
+            if (logoRes != null) {
+                Image(
+                    painter = painterResource(logoRes),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(24.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.Extension,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.example.ui.chat
 
 import android.content.ClipData
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -57,11 +59,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.style.TextOverflow
@@ -282,19 +286,33 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
 @Composable
 private fun StatusLabel(text: String) {
     val transition = rememberInfiniteTransition(label = "shimmer")
-    val alpha by transition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "alpha"
+    val progress by transition.animateFloat(
+        initialValue = -0.5f,
+        targetValue = 1.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerProgress"
+    )
+    var widthPx by remember { mutableFloatStateOf(200f) }
+    val baseColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val highlightColor = MaterialTheme.colorScheme.onSurface
+    val bandWidth = (widthPx * 0.45f).coerceAtLeast(80f)
+    val centerX = progress * widthPx
+    val shimmerBrush = Brush.linearGradient(
+        colors = listOf(baseColor, highlightColor, baseColor),
+        start = Offset(centerX - bandWidth, 0f),
+        end = Offset(centerX + bandWidth, 0f)
     )
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodyMedium.copy(brush = shimmerBrush),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.graphicsLayer { this.alpha = alpha }
+        modifier = Modifier.onSizeChanged { size ->
+            if (size.width > 0) widthPx = size.width.toFloat()
+        }
     )
 }
 
@@ -318,11 +336,15 @@ private fun ThinkingBlock(item: ReasoningItem) {
                 .clickable { toggled = !open }
                 .padding(vertical = 6.dp, horizontal = 2.dp)
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (item.active) {
+                StatusLabel(label)
+            } else {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
                 contentDescription = if (open) "Collapse thinking" else "Expand thinking",

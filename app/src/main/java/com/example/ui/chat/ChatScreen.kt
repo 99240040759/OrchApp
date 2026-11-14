@@ -73,7 +73,7 @@ import com.example.ui.components.OrchEmptyMessage
 import com.example.ui.theme.OrchDimens
 import kotlinx.coroutines.launch
 
-private val BottomGap = 28.dp
+private val BottomGap = 120.dp
 private val PromptToReplyGap = 24.dp
 private val BlockGap = 14.dp
 private val CopyGap = 4.dp
@@ -320,9 +320,9 @@ private fun MessageList(
                 val info = listState.layoutInfo
                 val lastVisible = info.visibleItemsInfo.lastOrNull()
                 val bottomEdge = lastVisible?.let { it.offset + it.size } ?: 0
-                Triple(info.totalItemsCount, bottomEdge, listState.canScrollForward)
-            }.collect { (_, _, canScrollDown) ->
-                if (autoFollow && !listState.isScrollInProgress && canScrollDown) {
+                listOf(info.totalItemsCount, bottomEdge, listState.canScrollForward, listState.isScrollInProgress)
+            }.collect {
+                if (autoFollow && !listState.isScrollInProgress && listState.canScrollForward) {
                     val lastIdx = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
                     listState.scrollToItem(lastIdx, Int.MAX_VALUE)
                 }

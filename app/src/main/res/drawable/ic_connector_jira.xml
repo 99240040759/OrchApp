@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
+    <group
+        android:translateX="1.13"
+        android:translateY="-1.5">
+        <path
+            android:fillColor="#FF2684FF"
+            android:pathData="M24.664,3H12.2603C12.2603,5.99443 14.7697,8.43176 17.8527,8.43176H20.147V10.5557C20.147,13.5501 22.6565,15.9875 25.7395,15.9875V4.04457C25.7395,3.45265 25.2735,3 24.664,3Z" />
+        <path android:pathData="M18.5339,8.98877H6.13013C6.13013,11.9832 8.63956,14.4205 11.7226,14.4205H14.0169V16.5793C14.0169,19.5737 16.5264,22.0111 19.6094,22.0111V10.0333C19.6094,9.47623 19.1433,8.98877 18.5339,8.98877Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="19.3455"
+                    android:startY="9.01882"
+                    android:endX="14.2302"
+                    android:endY="14.45">
+                    <item android:offset="0.176" android:color="#FF0052CC" />
+                    <item android:offset="1.0" android:color="#FF2684FF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M12.4038,15.0125H0C0,18.0069 2.50943,20.4442 5.59245,20.4442H7.88679V22.5682C7.88679,25.5626 10.3962,27.9999 13.4792,27.9999V16.057C13.4792,15.4651 12.9774,15.0125 12.4038,15.0125Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="13.5601"
+                    android:startY="15.0525"
+                    android:endX="7.63562"
+                    android:endY="20.9874">
+                    <item android:offset="0.176" android:color="#FF0052CC" />
+                    <item android:offset="1.0" android:color="#FF2684FF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+</vector>

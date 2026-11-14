@@ -108,10 +108,8 @@ fun Composer(
         ) {
             Column(
                 modifier = Modifier.padding(
-                    start = OrchDimens.CardPaddingH,
-                    end = 8.dp,
-                    top = 12.dp,
-                    bottom = 6.dp
+                    horizontal = 6.dp,
+                    vertical = 6.dp
                 )
             ) {
                 if (attachments.isNotEmpty()) {
@@ -127,8 +125,8 @@ fun Composer(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 40.dp)
-                                .padding(vertical = 8.dp),
+                                .heightIn(min = 38.dp)
+                                .padding(top = 6.dp, bottom = 2.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (state.text.isEmpty()) {
@@ -145,15 +143,12 @@ fun Composer(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(end = 8.dp)
+                        .padding(horizontal = 12.dp)
                         .testTag("composer_input")
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     IconButton(
                         onClick = onAttach,
@@ -163,17 +158,18 @@ fun Composer(
                             imageVector = Icons.Outlined.Add,
                             contentDescription = "Attach",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     Box(modifier = Modifier.weight(1f)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier
                                 .heightIn(min = 40.dp)
                                 .clip(MaterialTheme.shapes.small)
                                 .clickable(onClick = onPickModel)
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .padding(horizontal = 6.dp, vertical = 6.dp)
                                 .testTag("composer_model_button")
                         ) {
                             Text(
@@ -196,7 +192,7 @@ fun Composer(
                         CircularProgressIndicator(
                             progress = { contextRatio },
                             modifier = Modifier
-                                .padding(end = 4.dp)
+                                .padding(end = 6.dp)
                                 .size(16.dp),
                             strokeWidth = 2.dp,
                             color = if (contextRatio > 0.85f) {
@@ -255,7 +251,7 @@ private fun AttachmentStrip(attachments: List<PendingAttachment>, onRemove: (Uri
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(bottom = 10.dp)
+            .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 8.dp)
     ) {
         attachments.forEach { attachment ->
             Row(
