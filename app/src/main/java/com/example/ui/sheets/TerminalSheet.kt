@@ -42,26 +42,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.terminal.TerminalStatus
 import com.example.terminal.TerminalUi
 import com.example.ui.components.OrchActionChip
 import com.example.ui.components.OrchBanner
 import com.example.ui.components.OrchBottomSheet
 import com.example.ui.components.OrchSheetHeader
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchAdded
-import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
+import com.example.ui.theme.OrchMonoBody
+import com.example.ui.theme.OrchSuccess
 
 private data class QuickKey(val label: String, val sequence: String)
 
@@ -94,13 +87,9 @@ fun TerminalSheet(
     val verticalScroll = rememberScrollState()
     val horizontalScroll = rememberScrollState()
 
-    val termStyle = remember {
-        TextStyle(
-            fontFamily = JetBrainsMonoFontFamily,
-            fontSize = 12.5.sp,
-            lineHeight = 17.sp,
-            color = OrchTextPrimary
-        )
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val termStyle = remember(onSurfaceColor) {
+        OrchMonoBody.copy(color = onSurfaceColor)
     }
 
     DisposableEffect(workspace) {
@@ -116,9 +105,9 @@ fun TerminalSheet(
         fullScreen = true
     ) {
         val dotColor = when (terminal.status) {
-            TerminalStatus.Connected -> OrchAdded
-            TerminalStatus.Connecting -> OrchAccentCoral
-            TerminalStatus.Exited, TerminalStatus.Disconnected -> OrchTextSecondary
+            TerminalStatus.Connected -> OrchSuccess
+            TerminalStatus.Connecting -> MaterialTheme.colorScheme.primary
+            TerminalStatus.Exited, TerminalStatus.Disconnected -> MaterialTheme.colorScheme.onSurfaceVariant
         }
         val statusLabel = when (terminal.status) {
             TerminalStatus.Connected -> "Connected"
@@ -134,18 +123,30 @@ fun TerminalSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
-                    Text(statusLabel, style = MaterialTheme.typography.labelSmall, color = OrchTextSecondary)
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
+                    Text(
+                        text = statusLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             onClose = onDismiss,
             actions = {
                 IconButton(onClick = onClear) {
-                    Icon(Icons.Outlined.DeleteSweep, "Clear output", tint = OrchTextSecondary)
+                    Icon(
+                        imageVector = Icons.Outlined.DeleteSweep,
+                        contentDescription = "Clear output",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 if (terminal.status != TerminalStatus.Connected && terminal.status != TerminalStatus.Connecting) {
                     IconButton(onClick = { onConnect(workspace, measuredCols, measuredRows) }) {
-                        Icon(Icons.Rounded.Refresh, "Reconnect", tint = OrchTextPrimary)
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Reconnect",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
@@ -163,7 +164,7 @@ fun TerminalSheet(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(OrchSurface)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             val density = LocalDensity.current
@@ -208,17 +209,17 @@ fun TerminalSheet(
                             }
                         },
                         style = termStyle,
-                        color = if (terminal.output.isEmpty()) OrchTextSecondary else OrchTextPrimary,
+                        color = if (terminal.output.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         softWrap = false
                     )
                 }
             }
         }
 
-        HorizontalDivider(color = OrchBorder)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
@@ -234,34 +235,31 @@ fun TerminalSheet(
         }
 
         Surface(
-            color = OrchSurface,
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = MaterialTheme.shapes.medium,
-            border = BorderStroke(1.dp, OrchBorder),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
             ) {
                 Box(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
                     if (command.isEmpty()) {
                         Text(
                             text = "Run command in sandbox...",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
-                            color = OrchTextSecondary
+                            style = OrchMonoBody,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     BasicTextField(
                         value = command,
                         onValueChange = { command = it },
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = JetBrainsMonoFontFamily,
-                            color = OrchTextPrimary
-                        ),
-                        cursorBrush = SolidColor(OrchAccentCoral),
+                        textStyle = termStyle,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.None,
                             imeAction = ImeAction.Send
@@ -287,10 +285,15 @@ fun TerminalSheet(
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.KeyboardReturn,
                         contentDescription = "Run command",
-                        tint = if (terminal.status == TerminalStatus.Connected) OrchAccentCoral else OrchTextSecondary
+                        tint = if (terminal.status == TerminalStatus.Connected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
             }
         }
     }
 }
+

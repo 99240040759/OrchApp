@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -82,15 +83,11 @@ import com.example.chat.WorkRow
 import com.example.data.ToolDisplay
 import com.example.data.ToolIcon
 import com.example.ui.components.OrchBanner
-import com.example.ui.theme.OrchAccentCoral
 import com.example.ui.theme.OrchAdded
-import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchDimens
+import com.example.ui.theme.OrchMonoBody
+import com.example.ui.theme.OrchMonoLabel
 import com.example.ui.theme.OrchRemoved
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchSurfaceElevated
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -120,34 +117,37 @@ private val Whitespace = Regex("\\s+")
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UserBubble(row: UserRow, onOpenFile: (String) -> Unit) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
-        horizontalAlignment = Alignment.End,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        if (row.attachments.isNotEmpty()) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap, Alignment.End),
-                verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                row.attachments.forEach { AttachmentChip(it, onOpenFile) }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val bubbleMaxWidth = (maxWidth * 0.85f).coerceAtMost(460.dp)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
+            horizontalAlignment = Alignment.End,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (row.attachments.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    row.attachments.forEach { AttachmentChip(it, onOpenFile) }
+                }
             }
-        }
-        if (row.text.isNotBlank()) {
-            val bubbleShape = MaterialTheme.shapes.medium
-            SelectionContainer {
-                Text(
-                    text = row.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = OrchTextPrimary,
-                    modifier = Modifier
-                        .widthIn(max = 320.dp)
-                        .clip(bubbleShape)
-                        .background(OrchSurface)
-                        .border(1.dp, OrchBorder, bubbleShape)
-                        .padding(horizontal = OrchDimens.CardPaddingH, vertical = OrchDimens.CardPaddingV)
-                )
+            if (row.text.isNotBlank()) {
+                val bubbleShape = MaterialTheme.shapes.large
+                SelectionContainer {
+                    Text(
+                        text = row.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .widthIn(max = bubbleMaxWidth)
+                            .clip(bubbleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, bubbleShape)
+                            .padding(horizontal = OrchDimens.CardPaddingH, vertical = OrchDimens.CardPaddingV)
+                    )
+                }
             }
         }
     }
@@ -174,15 +174,18 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
         }
     }
     val path = attachment.path
-    val previewModifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.extraSmall)
+    val previewModifier = Modifier
+        .size(36.dp)
+        .clip(MaterialTheme.shapes.extraSmall)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
         modifier = Modifier
+            .heightIn(min = 44.dp)
             .clip(MaterialTheme.shapes.small)
-            .background(OrchSurfaceElevated)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .then(if (path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
-            .padding(6.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         val previewUri = attachment.previewUri
         val bitmap = thumbnail
@@ -202,11 +205,13 @@ private fun AttachmentChip(attachment: UserAttachment, onOpenFile: (String) -> U
         }
         Text(
             text = attachment.name,
-            style = MaterialTheme.typography.labelMedium,
-            color = OrchTextPrimary,
+            style = OrchMonoLabel,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 200.dp).padding(horizontal = 4.dp)
+            modifier = Modifier
+                .widthIn(max = 200.dp)
+                .padding(horizontal = 4.dp)
         )
     }
 }
@@ -232,10 +237,12 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
+                .heightIn(min = 36.dp)
                 .clip(MaterialTheme.shapes.extraSmall)
                 .clickable { toggled = !open }
-                .padding(vertical = 4.dp)
+                .padding(vertical = 6.dp, horizontal = 2.dp)
         ) {
             if (row.live) {
                 StatusLabel("Working")
@@ -243,20 +250,22 @@ private fun WorkBlock(row: WorkRow, onOpenFile: (String) -> Unit) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OrchTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = OrchTextSecondary,
-                modifier = Modifier.size(18.dp).rotate(if (open) 90f else 0f)
+                contentDescription = if (open) "Collapse details" else "Expand details",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(18.dp)
+                    .rotate(if (open) 90f else 0f)
             )
         }
         if (open) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
             ) {
                 row.items.forEach { item ->
                     when (item) {
@@ -282,7 +291,7 @@ private fun StatusLabel(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
-        color = OrchTextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.graphicsLayer { this.alpha = alpha }
@@ -302,17 +311,25 @@ private fun ThinkingBlock(item: ReasoningItem) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
+                .heightIn(min = 36.dp)
                 .clip(MaterialTheme.shapes.extraSmall)
                 .clickable { toggled = !open }
-                .padding(vertical = 4.dp)
+                .padding(vertical = 6.dp, horizontal = 2.dp)
         ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = OrchTextSecondary)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = OrchTextSecondary,
-                modifier = Modifier.size(18.dp).rotate(if (open) 90f else 0f)
+                contentDescription = if (open) "Collapse thinking" else "Expand thinking",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(18.dp)
+                    .rotate(if (open) 90f else 0f)
             )
         }
         if (open) {
@@ -322,7 +339,12 @@ private fun ThinkingBlock(item: ReasoningItem) {
                     .heightIn(max = 260.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                ChatMarkdown(item.text.trim(), color = OrchTextSecondary, compact = true, streaming = item.active)
+                ChatMarkdown(
+                    text = item.text.trim(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    compact = true,
+                    streaming = item.active
+                )
             }
         }
     }
@@ -339,50 +361,53 @@ private fun ToolRow(item: ToolItem, onOpenFile: (String) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
+                .heightIn(min = 36.dp)
                 .clip(MaterialTheme.shapes.extraSmall)
                 .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
-                .padding(vertical = 4.dp)
+                .padding(vertical = 6.dp, horizontal = 2.dp)
         ) {
             Text(
                 text = if (item.status == ToolStatus.Running) item.display.activeLabel else item.display.label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = OrchTextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             ToolTarget(item.display, onOpenFile, Modifier.weight(1f, fill = false))
             when {
                 item.status == ToolStatus.Running -> CircularProgressIndicator(
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(14.dp),
                     strokeWidth = 1.5.dp,
-                    color = OrchTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 item.status == ToolStatus.Error -> Icon(
                     imageVector = Icons.Rounded.WarningAmber,
                     contentDescription = "Tool call failed",
-                    tint = OrchAccentCoral,
-                    modifier = Modifier.size(14.dp)
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
                 )
             }
             if (expandable) {
                 Icon(
                     imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    tint = OrchTextSecondary,
-                    modifier = Modifier.size(16.dp).rotate(if (expanded) 90f else 0f)
+                    contentDescription = if (expanded) "Collapse output" else "Expand output",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .rotate(if (expanded) 90f else 0f)
                 )
             }
         }
         if (expanded && expandable) {
             Text(
                 text = output,
-                style = MaterialTheme.typography.labelMedium,
-                color = OrchTextPrimary,
+                style = OrchMonoBody,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 220.dp)
                     .clip(MaterialTheme.shapes.small)
-                    .background(OrchSurface)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .verticalScroll(rememberScrollState())
-                    .padding(10.dp)
+                    .padding(12.dp)
             )
         }
     }
@@ -412,11 +437,16 @@ private fun ToolTarget(display: ToolDisplay, onOpenFile: (String) -> Unit, modif
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
     ) {
-        Icon(display.icon.vector(), null, tint = OrchTextSecondary, modifier = Modifier.size(14.dp))
+        Icon(
+            imageVector = display.icon.vector(),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
         Text(
             text = target.replace(Whitespace, " "),
             style = MaterialTheme.typography.bodyMedium,
-            color = OrchTextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -432,26 +462,26 @@ private fun FileTag(display: ToolDisplay, filename: String, onOpenFile: (String)
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
             .clip(MaterialTheme.shapes.extraSmall)
-            .background(OrchSurfaceElevated)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .then(if (canOpen && path != null) Modifier.clickable { onOpenFile(path) } else Modifier)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = filename,
-            style = MaterialTheme.typography.labelMedium,
-            color = OrchTextPrimary,
+            style = OrchMonoLabel,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false)
         )
         display.lineRange?.let {
-            Text(it, style = MaterialTheme.typography.labelSmall, color = OrchTextSecondary)
+            Text(it, style = OrchMonoLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         display.addedLines?.takeIf { it > 0 }?.let {
-            Text("+$it", style = MaterialTheme.typography.labelSmall, color = OrchAdded)
+            Text("+$it", style = OrchMonoLabel, color = OrchAdded)
         }
         display.removedLines?.takeIf { it > 0 }?.let {
-            Text("-$it", style = MaterialTheme.typography.labelSmall, color = OrchRemoved)
+            Text("-$it", style = OrchMonoLabel, color = OrchRemoved)
         }
     }
 }
@@ -460,8 +490,8 @@ private fun FileTag(display: ToolDisplay, filename: String, onOpenFile: (String)
 private fun CompactionNotice(row: CompactionRow) {
     Text(
         text = if (row.originalMessageCount > 0) "Compacted ${row.originalMessageCount} messages" else "Context compacted",
-        style = MaterialTheme.typography.labelMedium,
-        color = OrchTextSecondary,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(vertical = 4.dp)
     )
 }
@@ -481,6 +511,7 @@ private fun CopyAction(text: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
+            .heightIn(min = 40.dp)
             .clip(MaterialTheme.shapes.small)
             .clickable {
                 scope.launch {
@@ -488,18 +519,18 @@ private fun CopyAction(text: String) {
                     copied = true
                 }
             }
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         Icon(
             imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
             contentDescription = "Copy response",
-            tint = OrchTextSecondary,
-            modifier = Modifier.size(14.dp)
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
         )
         Text(
             text = if (copied) "Copied" else "Copy",
             style = MaterialTheme.typography.labelMedium,
-            color = OrchTextSecondary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -509,11 +540,20 @@ private fun EarlierButton(loading: Boolean, failed: Boolean, onLoad: () -> Unit)
     LaunchedEffect(failed) { if (!failed) onLoad() }
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         } else {
             TextButton(onClick = onLoad) {
-                Text(if (failed) "Couldn't load. Tap to retry" else "Load earlier messages", color = OrchTextSecondary)
+                Text(
+                    text = if (failed) "Couldn't load. Tap to retry" else "Load earlier messages",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
 }
+

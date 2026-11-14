@@ -9,6 +9,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
@@ -32,16 +33,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.auth.signOutUser
 import com.example.ui.chat.ChatScreen
 import com.example.ui.components.ArtifactModalBottomSheet
+import com.example.ui.connectors.ConnectorsScreen
 import com.example.ui.sheets.AccountSheet
 import com.example.ui.sheets.AttachmentSheet
 import com.example.ui.sheets.FilesSheet
 import com.example.ui.sheets.ModelSheet
 import com.example.ui.sheets.TerminalSheet
-import com.example.ui.theme.OrchBackground
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private enum class Sheet { None, Attach, Files, Terminal, Models, Account }
+private enum class AppScreen { Chat, Connectors }
 
 @Composable
 fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: String?) {
@@ -56,6 +58,7 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbar = remember { SnackbarHostState() }
     var sheet by rememberSaveable { mutableStateOf(Sheet.None) }
+    var screen by rememberSaveable { mutableStateOf(AppScreen.Chat) }
 
     val sessions by vm.sessions.collectAsStateWithLifecycle()
     val chat by vm.chat.collectAsStateWithLifecycle()
@@ -87,18 +90,30 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = screen == AppScreen.Chat,
         drawerContent = {
-            ModalDrawerSheet(drawerContainerColor = OrchBackground, modifier = Modifier.width(320.dp)) {
+            ModalDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.background,
+                modifier = Modifier.width(320.dp)
+            ) {
                 SessionsDrawer(
                     sessions = sessions,
                     activeId = chat.sessionId,
                     userName = userName,
+                    onConnectorsScreen = screen == AppScreen.Connectors,
+                    activeConnectorCount = connectors.activeIds.size,
                     onNewChat = {
                         vm.newChat()
+                        screen = AppScreen.Chat
+                        scope.launch { drawerState.close() }
+                    },
+                    onConnectors = {
+                        screen = AppScreen.Connectors
                         scope.launch { drawerState.close() }
                     },
                     onOpen = {
                         vm.openSession(it)
+                        screen = AppScreen.Chat
                         scope.launch { drawerState.close() }
                     },
                     onDelete = vm::deleteSession,
@@ -110,34 +125,51 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
             }
         }
     ) {
-        ChatScreen(
-            title = title,
-            chat = chat,
-            attachments = attachments,
-            models = models,
-            selectedModelId = selectedModelId,
-            thinkingEffort = thinkingEffort,
-            snackbar = snackbar,
-            onMenu = { scope.launch { drawerState.open() } },
-            onOpenExplorer = { sheet = Sheet.Files },
-            onOpenTerminal = { sheet = Sheet.Terminal },
-            onSend = vm::send,
-            onStop = vm::stop,
-            onAttach = { sheet = Sheet.Attach },
-            onPickModel = { sheet = Sheet.Models },
-            onRemoveAttachment = vm::removeAttachment,
-            onOpenFile = vm::openFile,
-            onLoadEarlier = vm::loadEarlier,
-            onRetryLoad = { vm.openSession(chat.sessionId, force = true) },
-            transcribe = vm::transcribe
-        )
+        when (screen) {
+            AppScreen.Chat -> ChatScreen(
+                title = title,
+                chat = chat,
+                attachments = attachments,
+                models = models,
+                selectedModelId = selectedModelId,
+                thinkingEffort = thinkingEffort,
+                snackbar = snackbar,
+                onMenu = { scope.launch { drawerState.open() } },
+                onOpenExplorer = { sheet = Sheet.Files },
+                onOpenTerminal = { sheet = Sheet.Terminal },
+                onSend = vm::send,
+                onStop = vm::stop,
+                onAttach = { sheet = Sheet.Attach },
+                onPickModel = { sheet = Sheet.Models },
+                onRemoveAttachment = vm::removeAttachment,
+                onOpenFile = vm::openFile,
+                onLoadEarlier = vm::loadEarlier,
+                onRetryLoad = { vm.openSession(chat.sessionId, force = true) },
+                transcribe = vm::transcribe
+            )
+            AppScreen.Connectors -> ConnectorsScreen(
+                connectors = connectors,
+                onBack = { screen = AppScreen.Chat },
+                onRefresh = vm::loadConnectors,
+                onToggle = vm::toggleConnector,
+                onConnect = { id ->
+                    vm.connectConnector(id) { url ->
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure {
+                            Toast.makeText(context, "Unable to open browser.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDisconnect = vm::disconnectConnector
+            )
+        }
     }
 
     when (sheet) {
         Sheet.None -> Unit
         Sheet.Attach -> AttachmentSheet(
             chat = chat,
-            connectors = connectors,
             onPickImages = {
                 sheet = Sheet.None
                 imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -149,18 +181,6 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
             onConnectRepo = vm::connectRepo,
             onEditRepo = vm::clearRepoError,
             onDisconnectRepo = vm::disconnectRepo,
-            onRefreshConnectors = vm::loadConnectors,
-            onToggleConnector = vm::toggleConnector,
-            onConnectConnector = { id ->
-                vm.connectConnector(id) { url ->
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    }.onFailure {
-                        Toast.makeText(context, "Unable to open browser.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            },
-            onDisconnectConnector = vm::disconnectConnector,
             onDismiss = { sheet = Sheet.None }
         )
         Sheet.Files -> FilesSheet(
@@ -202,6 +222,7 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
             email = userEmail,
             budget = budget,
             onSignOut = {
+                sheet = Sheet.None
                 userScope.autoSignIn = false
                 signOutUser(CredentialManager.create(context), scope)
             },
@@ -216,3 +237,4 @@ fun OrchApp(userScope: UserScope, userId: String, userName: String?, userEmail: 
         onDismiss = vm::closeArtifact
     )
 }
+

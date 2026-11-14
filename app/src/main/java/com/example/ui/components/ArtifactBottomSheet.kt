@@ -71,9 +71,7 @@ import com.example.data.ArtifactContent
 import com.example.data.ArtifactState
 import com.example.ui.chat.ChatMarkdown
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
+import com.example.ui.theme.OrchMonoBody
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -135,14 +133,18 @@ fun ArtifactModalBottomSheet(
             actions = {
                 if (saving) {
                     Box(modifier = Modifier.size(OrchDimens.TouchTarget), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 } else {
                     IconButton(onClick = download, enabled = canDownload) {
                         Icon(
                             imageVector = Icons.Outlined.Download,
                             contentDescription = "Download",
-                            tint = if (canDownload) OrchTextPrimary else OrchTextSecondary
+                            tint = if (canDownload) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -181,19 +183,19 @@ private fun DownloadPanel(title: String, message: String, saving: Boolean, onDow
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(Icons.Outlined.InsertDriveFile, null, tint = OrchTextSecondary, modifier = Modifier.size(44.dp))
+        Icon(Icons.Outlined.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(44.dp))
         Spacer(Modifier.height(14.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = OrchTextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(6.dp))
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
-            color = OrchTextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(20.dp))
@@ -482,7 +484,7 @@ private fun CodeView(text: String) {
         OrchCenteredSpinner()
         return
     }
-    val style = MaterialTheme.typography.labelMedium
+    val style = OrchMonoBody
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val longest = remember(ready) { ready.maxOfOrNull { it.text.length } ?: 0 }
@@ -491,7 +493,7 @@ private fun CodeView(text: String) {
     }
     val horizontal = rememberScrollState()
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(OrchSurface),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
     ) {
         items(ready) { line ->
@@ -499,7 +501,7 @@ private fun CodeView(text: String) {
                 Text(
                     text = line.number?.toString().orEmpty(),
                     style = style,
-                    color = OrchTextSecondary.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                     textAlign = TextAlign.End,
                     modifier = Modifier.width(36.dp)
                 )
@@ -508,7 +510,7 @@ private fun CodeView(text: String) {
                     Text(
                         text = line.text.ifEmpty { " " },
                         style = style,
-                        color = OrchTextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         softWrap = false,
                         modifier = Modifier.width(textWidth)
                     )

@@ -13,21 +13,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBorder
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchSurfaceElevated
-import com.example.ui.theme.OrchTextPrimary
+import com.example.ui.theme.OrchMonoBody
+import com.example.ui.theme.OrchMonoLabel
 import com.example.ui.theme.SpaceGroteskFontFamily
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
-
-private val SharedLinkStyles = TextLinkStyles(
-    style = SpanStyle(color = OrchAccentCoral, textDecoration = TextDecoration.Underline)
-)
 
 @Immutable
 private data class CachedMarkdownStyles(
@@ -48,7 +40,7 @@ private data class CachedMarkdownStyles(
 fun ChatMarkdown(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = OrchTextPrimary,
+    color: Color = MaterialTheme.colorScheme.onSurface,
     compact: Boolean = false,
     streaming: Boolean = false
 ) {
@@ -56,32 +48,36 @@ fun ChatMarkdown(
     val state = rememberMarkdownState(text, retainState = true, immediate = immediate)
     val baseBodyLarge = MaterialTheme.typography.bodyLarge
     val baseBodyMedium = MaterialTheme.typography.bodyMedium
-    val baseLabelMedium = MaterialTheme.typography.labelMedium
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val linkStyles = remember(primaryColor) {
+        TextLinkStyles(
+            style = SpanStyle(color = primaryColor, textDecoration = TextDecoration.Underline)
+        )
+    }
 
-    val styles = remember(color, compact, baseBodyLarge, baseBodyMedium, baseLabelMedium) {
+    val styles = remember(color, compact, baseBodyLarge, baseBodyMedium) {
         val body = if (compact) {
-            baseBodyMedium.copy(fontSize = 12.5.sp, lineHeight = 18.sp, color = color)
+            baseBodyMedium.copy(color = color)
         } else {
             baseBodyLarge.copy(color = color)
         }
         val heading = { size: Int ->
-            val scaled = if (compact) (size - 4).coerceAtLeast(12) else size
+            val scaled = if (compact) (size - 4).coerceAtLeast(13) else size
             TextStyle(
                 fontFamily = SpaceGroteskFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = scaled.sp,
-                lineHeight = (scaled + 5).sp,
+                lineHeight = (scaled + 6).sp,
                 color = color
             )
         }
-        val mono = baseLabelMedium.copy(
-            fontFamily = JetBrainsMonoFontFamily,
-            fontSize = if (compact) 11.5.sp else 12.5.sp,
-            lineHeight = if (compact) 16.sp else 18.sp,
+        val mono = (if (compact) OrchMonoLabel else OrchMonoBody).copy(color = color)
+        val inlineCode = (if (compact) OrchMonoLabel else OrchMonoBody).copy(
+            fontSize = if (compact) 12.5.sp else 14.sp,
             color = color
         )
         CachedMarkdownStyles(
-            h1 = heading(22),
+            h1 = heading(24),
             h2 = heading(20),
             h3 = heading(18),
             h4 = heading(16),
@@ -89,9 +85,9 @@ fun ChatMarkdown(
             h6 = heading(14),
             body = body,
             mono = mono,
-            inlineCode = body.copy(fontFamily = JetBrainsMonoFontFamily, fontSize = if (compact) 12.sp else 13.5.sp),
-            quote = body.copy(color = color.copy(alpha = 0.75f)),
-            table = body.copy(fontSize = if (compact) 12.sp else 13.sp)
+            inlineCode = inlineCode,
+            quote = body.copy(color = color.copy(alpha = 0.78f)),
+            table = baseBodyMedium.copy(color = color)
         )
     }
 
@@ -99,10 +95,10 @@ fun ChatMarkdown(
         markdownState = state,
         colors = markdownColor(
             text = color,
-            codeBackground = OrchSurface,
-            inlineCodeBackground = OrchSurfaceElevated,
-            dividerColor = OrchBorder,
-            tableBackground = OrchSurface
+            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+            inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHigh,
+            dividerColor = MaterialTheme.colorScheme.outline,
+            tableBackground = MaterialTheme.colorScheme.surfaceVariant
         ),
         typography = markdownTypography(
             h1 = styles.h1,
@@ -119,9 +115,10 @@ fun ChatMarkdown(
             ordered = styles.body,
             bullet = styles.body,
             list = styles.body,
-            textLink = SharedLinkStyles,
+            textLink = linkStyles,
             table = styles.table
         ),
         modifier = modifier.fillMaxWidth()
     )
 }
+

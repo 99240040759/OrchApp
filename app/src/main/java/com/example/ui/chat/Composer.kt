@@ -15,11 +15,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -38,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,14 +66,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.AsyncImage
 import com.example.ui.PendingAttachment
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBackground
-import com.example.ui.theme.OrchBorder
+import com.example.ui.components.OrchCircleIconButton
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchSurfaceElevated
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
+import com.example.ui.theme.OrchMonoLabel
 import com.example.voice.VoicePromptRecorder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,20 +98,20 @@ fun Composer(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(OrchBackground)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = OrchDimens.ScreenPadding, vertical = OrchDimens.ItemGap)
     ) {
         Surface(
-            color = OrchSurface,
-            shape = MaterialTheme.shapes.large,
-            border = BorderStroke(1.dp, OrchBorder)
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             Column(
                 modifier = Modifier.padding(
                     start = OrchDimens.CardPaddingH,
                     end = 8.dp,
-                    top = OrchDimens.CardPaddingV,
-                    bottom = 8.dp
+                    top = 12.dp,
+                    bottom = 6.dp
                 )
             ) {
                 if (attachments.isNotEmpty()) {
@@ -122,22 +119,23 @@ fun Composer(
                 }
                 BasicTextField(
                     state = state,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = OrchTextPrimary),
-                    cursorBrush = SolidColor(OrchAccentCoral),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 6),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     decorator = { inner ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .heightIn(min = 40.dp)
+                                .padding(vertical = 8.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (state.text.isEmpty()) {
                                 Text(
                                     text = placeholder,
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = OrchTextSecondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -145,34 +143,43 @@ fun Composer(
                             inner()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().testTag("composer_input")
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 8.dp)
+                        .testTag("composer_input")
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 6.dp)
+                        .padding(top = 2.dp)
                 ) {
                     IconButton(
                         onClick = onAttach,
-                        modifier = Modifier.size(32.dp).testTag("composer_attach_button")
+                        modifier = Modifier.testTag("composer_attach_button")
                     ) {
-                        Icon(Icons.Outlined.Add, "Attach", tint = OrchTextSecondary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "Attach",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                     Box(modifier = Modifier.weight(1f)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
+                                .heightIn(min = 40.dp)
                                 .clip(MaterialTheme.shapes.small)
                                 .clickable(onClick = onPickModel)
-                                .padding(horizontal = 6.dp, vertical = 5.dp)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
                                 .testTag("composer_model_button")
                         ) {
                             Text(
                                 text = modelLabel,
                                 style = MaterialTheme.typography.labelLarge,
-                                color = OrchTextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
@@ -180,21 +187,27 @@ fun Composer(
                             Icon(
                                 imageVector = Icons.Rounded.KeyboardArrowDown,
                                 contentDescription = "Select model",
-                                tint = OrchTextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                     if (contextRatio > 0f) {
                         CircularProgressIndicator(
                             progress = { contextRatio },
-                            modifier = Modifier.padding(end = 4.dp).size(15.dp),
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(16.dp),
                             strokeWidth = 2.dp,
-                            color = if (contextRatio > 0.85f) OrchAccentCoral else OrchTextSecondary,
-                            trackColor = OrchBorder
+                            color = if (contextRatio > 0.85f) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            trackColor = MaterialTheme.colorScheme.outline
                         )
                     }
-                    if (!streaming && (micActive || !hasContent)) {
+                    if (!streaming && canSend && (micActive || !hasContent)) {
                         MicButton(
                             transcribe = transcribe,
                             onBusyChange = { micActive = it },
@@ -205,16 +218,28 @@ fun Composer(
                             }
                         )
                     } else {
-                        SendButton(
-                            streaming = streaming,
-                            enabled = sendEnabled,
+                        OrchCircleIconButton(
                             onClick = {
                                 if (streaming) {
                                     onStop()
                                 } else {
                                     if (onSend(state.text.toString())) state.clearText()
                                 }
-                            }
+                            },
+                            enabled = streaming || sendEnabled,
+                            icon = if (streaming) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
+                            contentDescription = if (streaming) "Stop" else "Send",
+                            containerColor = if (streaming) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            contentColor = if (streaming) {
+                                MaterialTheme.colorScheme.onError
+                            } else {
+                                MaterialTheme.colorScheme.background
+                            },
+                            modifier = Modifier.testTag("composer_send_button")
                         )
                     }
                 }
@@ -238,51 +263,46 @@ private fun AttachmentStrip(attachments: List<PendingAttachment>, onRemove: (Uri
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
-                    .background(OrchSurfaceElevated)
-                    .padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 4.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 2.dp)
             ) {
                 if (attachment.isImage) {
                     AsyncImage(
                         model = attachment.uri,
                         contentDescription = attachment.name,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(32.dp).clip(MaterialTheme.shapes.extraSmall)
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
                     )
                 }
                 Text(
                     text = attachment.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = OrchTextPrimary,
+                    style = OrchMonoLabel,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 2.dp).widthIn(max = 160.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .widthIn(max = 160.dp)
                 )
-                IconButton(onClick = { onRemove(attachment.uri) }, modifier = Modifier.size(22.dp)) {
-                    Icon(Icons.Rounded.Close, "Remove ${attachment.name}", tint = OrchTextSecondary, modifier = Modifier.size(14.dp))
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(32.dp)
+                        .clip(MaterialTheme.shapes.extraSmall)
+                        .clickable { onRemove(attachment.uri) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Remove ${attachment.name}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SendButton(streaming: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val active = streaming || enabled
-    IconButton(
-        onClick = onClick,
-        enabled = active,
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(if (active) OrchTextPrimary else OrchSurfaceElevated)
-            .testTag("composer_send_button")
-    ) {
-        Icon(
-            imageVector = if (streaming) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
-            contentDescription = if (streaming) "Stop" else "Send",
-            tint = if (active) OrchBackground else OrchTextSecondary,
-            modifier = Modifier.size(17.dp)
-        )
     }
 }
 
@@ -352,16 +372,15 @@ private fun MicButton(
         if (granted) begin()
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (recording) {
             Text(
                 text = "%d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60),
-                style = MaterialTheme.typography.labelMedium,
-                color = OrchAccentCoral
+                style = OrchMonoLabel,
+                color = MaterialTheme.colorScheme.primary
             )
         }
-        IconButton(
-            enabled = !transcribing,
+        OrchCircleIconButton(
             onClick = {
                 when {
                     recording -> finish()
@@ -370,22 +389,22 @@ private fun MicButton(
                     else -> permission.launch(Manifest.permission.RECORD_AUDIO)
                 }
             },
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(if (recording) OrchAccentCoral.copy(alpha = 0.16f) else OrchSurfaceElevated)
-                .testTag("composer_mic_button")
-        ) {
-            if (transcribing) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = OrchTextSecondary)
+            enabled = !transcribing,
+            loading = transcribing,
+            icon = if (recording) Icons.Rounded.Stop else Icons.Outlined.Mic,
+            contentDescription = if (recording) "Stop recording" else "Dictate",
+            containerColor = if (recording) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
             } else {
-                Icon(
-                    imageVector = if (recording) Icons.Rounded.Stop else Icons.Outlined.Mic,
-                    contentDescription = if (recording) "Stop recording" else "Dictate",
-                    tint = if (recording) OrchAccentCoral else OrchTextSecondary,
-                    modifier = Modifier.size(17.dp)
-                )
-            }
-        }
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            contentColor = if (recording) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.testTag("composer_mic_button")
+        )
     }
 }
+

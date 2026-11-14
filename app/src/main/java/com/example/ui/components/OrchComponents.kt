@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +46,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -57,14 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBackground
-import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchSurfaceElevated
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,21 +75,27 @@ fun OrchBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = OrchBackground,
-        contentColor = OrchTextPrimary,
-        shape = if (fullScreen) RectangleShape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        contentWindowInsets = { WindowInsets(0) },
+        sheetMaxWidth = if (fullScreen) Dp.Unspecified else BottomSheetDefaults.SheetMaxWidth,
+        sheetGesturesEnabled = !fullScreen,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+        shape = if (fullScreen) RectangleShape else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        contentWindowInsets = {
+            if (fullScreen) WindowInsets(0) else BottomSheetDefaults.windowInsets
+        },
         dragHandle = if (showDragHandle && !fullScreen) {
             {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 8.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(width = 36.dp, height = 4.dp)
                             .clip(CircleShape)
-                            .background(OrchBorder)
+                            .background(MaterialTheme.colorScheme.outline)
                     )
                 }
             }
@@ -103,13 +105,17 @@ fun OrchBottomSheet(
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier
-                .then(
-                    if (fullScreen) Modifier.fillMaxSize().statusBarsPadding()
-                    else Modifier.fillMaxWidth()
-                )
-                .navigationBarsPadding()
-                .imePadding(),
+            modifier = if (fullScreen) {
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+            },
             content = content
         )
     }
@@ -128,13 +134,14 @@ fun OrchSheetHeader(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = OrchDimens.ScreenPadding, end = 4.dp, top = 4.dp, bottom = 8.dp)
+                .heightIn(min = 56.dp)
+                .padding(start = OrchDimens.ScreenPadding, end = OrchDimens.TightGap, top = 4.dp, bottom = 6.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OrchTextPrimary,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -143,8 +150,8 @@ fun OrchSheetHeader(
                 } else if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = OrchTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -152,18 +159,22 @@ fun OrchSheetHeader(
             }
             actions()
             IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, "Close", tint = OrchTextSecondary)
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Close",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-        HorizontalDivider(color = OrchBorder)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
     }
 }
 
 @Composable
 fun OrchCard(
     modifier: Modifier = Modifier,
-    color: Color = OrchSurface,
-    border: BorderStroke? = null,
+    color: Color = MaterialTheme.colorScheme.surfaceVariant,
+    border: BorderStroke? = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     shape: Shape = MaterialTheme.shapes.medium,
     onClick: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(horizontal = OrchDimens.CardPaddingH, vertical = OrchDimens.CardPaddingV),
@@ -186,8 +197,8 @@ fun OrchCard(
 
 @Composable
 fun OrchIconBadge(
-    size: Dp = 38.dp,
-    containerColor: Color = OrchSurface,
+    size: Dp = 40.dp,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     content: @Composable () -> Unit
 ) {
     Box(
@@ -198,6 +209,52 @@ fun OrchIconBadge(
             .background(containerColor)
     ) {
         content()
+    }
+}
+
+@Composable
+fun OrchCircleIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    containerColor: Color = MaterialTheme.colorScheme.onSurface,
+    contentColor: Color = MaterialTheme.colorScheme.background,
+    disabledContainerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    disabledContentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    visualSize: Dp = OrchDimens.ComposerActionVisualSize,
+    iconSize: Dp = 20.dp
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier.minimumInteractiveComponentSize()
+    ) {
+        Surface(
+            onClick = onClick,
+            enabled = enabled && !loading,
+            shape = CircleShape,
+            color = if (enabled || loading) containerColor else disabledContainerColor,
+            contentColor = if (enabled || loading) contentColor else disabledContentColor,
+            modifier = Modifier.size(visualSize)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = contentColor
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        modifier = Modifier.size(iconSize)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -215,19 +272,19 @@ fun OrchPrimaryButton(
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.buttonColors(
-            containerColor = OrchTextPrimary,
-            contentColor = OrchBackground,
-            disabledContainerColor = OrchBorder,
-            disabledContentColor = OrchTextSecondary
+            containerColor = MaterialTheme.colorScheme.onSurface,
+            contentColor = MaterialTheme.colorScheme.background,
+            disabledContainerColor = MaterialTheme.colorScheme.outline,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
         modifier = modifier.height(OrchDimens.ButtonHeight)
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(18.dp),
                 strokeWidth = 2.dp,
-                color = OrchBackground
+                color = MaterialTheme.colorScheme.background
             )
         } else {
             if (icon != null) {
@@ -251,17 +308,17 @@ fun OrchSecondaryButton(
         onClick = onClick,
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, OrchBorder),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = OrchSurface,
-            contentColor = OrchTextPrimary,
-            disabledContentColor = OrchTextSecondary
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         modifier = modifier.height(OrchDimens.ButtonHeight)
     ) {
         if (icon != null) {
-            Icon(icon, null, modifier = Modifier.size(18.dp), tint = OrchTextPrimary)
+            Icon(icon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
@@ -286,23 +343,29 @@ fun OrchTextField(
         onValueChange = onValueChange,
         singleLine = true,
         shape = MaterialTheme.shapes.medium,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = OrchTextPrimary),
-        placeholder = { Text(placeholder, color = OrchTextSecondary, style = MaterialTheme.typography.bodyLarge) },
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        placeholder = {
+            Text(
+                text = placeholder,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        },
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         isError = isError,
         supportingText = supportingText?.let { msg ->
-            { Text(msg, color = OrchAccentCoral, style = MaterialTheme.typography.labelMedium) }
+            { Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         },
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = OrchSurface,
-            unfocusedContainerColor = OrchSurface,
-            focusedBorderColor = OrchTextSecondary,
-            unfocusedBorderColor = OrchBorder,
-            errorBorderColor = OrchAccentCoral,
-            cursorColor = OrchAccentCoral
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            errorBorderColor = MaterialTheme.colorScheme.error,
+            cursorColor = MaterialTheme.colorScheme.primary
         ),
         modifier = modifier.fillMaxWidth()
     )
@@ -316,20 +379,28 @@ fun OrchBanner(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
-            .background(if (isError) OrchAccentCoral.copy(alpha = 0.12f) else OrchSurface)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .background(
+                if (isError) MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         if (isError) {
-            Icon(Icons.Rounded.WarningAmber, null, tint = OrchAccentCoral, modifier = Modifier.size(16.dp))
+            Icon(
+                imageVector = Icons.Rounded.WarningAmber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp)
+            )
         }
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (isError) OrchAccentCoral else OrchTextSecondary
+            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -338,9 +409,9 @@ fun OrchBanner(
 fun OrchCenteredSpinner(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
-            modifier = Modifier.size(24.dp),
-            strokeWidth = 2.dp,
-            color = OrchAccentCoral
+            modifier = Modifier.size(28.dp),
+            strokeWidth = 2.5.dp,
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -363,13 +434,13 @@ fun OrchEmptyMessage(
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (isError) OrchAccentCoral else OrchTextSecondary,
+            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         if (actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             TextButton(onClick = onAction) {
-                Text(actionLabel, color = OrchTextPrimary, style = MaterialTheme.typography.labelLarge)
+                Text(actionLabel, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
             }
         }
     }
@@ -381,15 +452,15 @@ fun OrchAlertDialog(
     onDismiss: () -> Unit,
     confirmLabel: String? = null,
     onConfirm: (() -> Unit)? = null,
-    confirmColor: Color = OrchAccentCoral,
+    confirmColor: Color = MaterialTheme.colorScheme.error,
     dismissLabel: String = "Cancel",
     content: @Composable ColumnScope.() -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = OrchSurface,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.large,
-        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = OrchTextPrimary) },
+        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = content) },
         confirmButton = {
             if (confirmLabel != null && onConfirm != null) {
@@ -400,7 +471,7 @@ fun OrchAlertDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(dismissLabel, color = OrchTextSecondary, style = MaterialTheme.typography.labelLarge)
+                Text(dismissLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
             }
         }
     )
@@ -415,21 +486,33 @@ fun OrchActionChip(
     selected: Boolean = false
 ) {
     Surface(
-        color = if (selected) OrchSurfaceElevated else OrchSurface,
+        onClick = onClick,
+        enabled = enabled,
+        color = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.small,
-        border = BorderStroke(1.dp, if (selected) OrchAccentCoral else OrchBorder),
-        modifier = modifier
-            .clip(MaterialTheme.shapes.small)
-            .clickable(enabled = enabled, onClick = onClick)
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        ),
+        modifier = modifier.heightIn(min = 40.dp)
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (!enabled) OrchTextSecondary.copy(alpha = 0.5f) else if (selected) OrchTextPrimary else OrchTextSecondary,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        )
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    selected -> MaterialTheme.colorScheme.onSurface
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
+

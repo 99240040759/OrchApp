@@ -1,5 +1,6 @@
 package com.example.ui.sheets
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,14 +54,10 @@ import com.example.ui.components.OrchCenteredSpinner
 import com.example.ui.components.OrchEmptyMessage
 import com.example.ui.components.OrchIconBadge
 import com.example.ui.components.OrchSecondaryButton
+import com.example.ui.components.OrchSheetHeader
 import com.example.ui.components.OrchTextField
-import com.example.ui.theme.JetBrainsMonoFontFamily
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBackground
-import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
+import com.example.ui.theme.OrchMonoLabel
 
 @Composable
 fun FilesSheet(
@@ -73,47 +71,55 @@ fun FilesSheet(
     var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(query) { onBrowse(files.currentPath, query) }
 
+    val currentLocation = if (files.currentPath.isEmpty()) repoName else "$repoName/${files.currentPath}"
+
     OrchBottomSheet(onDismiss = onDismiss) {
+        OrchSheetHeader(
+            title = "Files",
+            subtitle = currentLocation,
+            onClose = onDismiss
+        )
         Column(
             modifier = Modifier
+                .fillMaxWidth()
                 .padding(horizontal = OrchDimens.ScreenPadding)
-                .padding(bottom = OrchDimens.ScreenPadding)
+                .padding(top = OrchDimens.ItemGap, bottom = OrchDimens.ScreenPadding)
         ) {
             OrchTextField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Search files",
-                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = OrchTextSecondary) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Rounded.Close, "Clear search", tint = OrchTextSecondary)
+                            Icon(Icons.Rounded.Close, "Clear search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             )
-            if (query.isBlank()) {
+            if (query.isBlank() && (files.currentPath.isNotEmpty() || files.treeTruncated)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = OrchDimens.ItemGap, bottom = OrchDimens.TightGap)
+                        .heightIn(min = OrchDimens.TouchTarget)
+                        .padding(top = OrchDimens.TightGap)
                 ) {
                     if (files.currentPath.isNotEmpty()) {
-                        IconButton(onClick = onNavigateUp, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = onNavigateUp) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = "Parent folder",
-                                tint = OrchTextPrimary,
-                                modifier = Modifier.size(18.dp)
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
                         Spacer(Modifier.width(OrchDimens.TightGap))
                     }
                     Text(
-                        text = if (files.currentPath.isEmpty()) repoName else "$repoName/${files.currentPath}",
-                        style = MaterialTheme.typography.labelLarge.copy(fontFamily = JetBrainsMonoFontFamily),
-                        color = OrchTextSecondary,
+                        text = currentLocation,
+                        style = OrchMonoLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -121,8 +127,8 @@ fun FilesSheet(
                     if (files.treeTruncated) {
                         Text(
                             text = "Truncated",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = OrchAccentCoral
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -130,7 +136,8 @@ fun FilesSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 500.dp)
+                    .weight(1f, fill = false)
+                    .heightIn(min = 180.dp, max = 420.dp)
                     .padding(top = OrchDimens.TightGap)
             ) {
                 val isEmpty = if (query.isNotBlank()) files.searchEntries.isEmpty() else files.treeEntries.isEmpty()
@@ -142,9 +149,10 @@ fun FilesSheet(
                         items(files.searchEntries, key = { it.path }) { entry ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .heightIn(min = OrchDimens.TouchTarget)
                                     .clip(MaterialTheme.shapes.small)
                                     .clickable {
                                         onDismiss()
@@ -155,15 +163,21 @@ fun FilesSheet(
                                 Icon(
                                     imageVector = Icons.Outlined.InsertDriveFile,
                                     contentDescription = null,
-                                    tint = OrchTextSecondary,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(entry.name, style = MaterialTheme.typography.titleMedium, color = OrchTextPrimary)
+                                    Text(
+                                        text = entry.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                     Text(
                                         text = entry.path,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = OrchTextSecondary,
+                                        style = OrchMonoLabel,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -175,9 +189,10 @@ fun FilesSheet(
                         items(files.treeEntries, key = { "${it.isDir}:${it.path}" }) { entry ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .heightIn(min = OrchDimens.TouchTarget)
                                     .clip(MaterialTheme.shapes.small)
                                     .clickable {
                                         if (entry.isDir) {
@@ -187,18 +202,18 @@ fun FilesSheet(
                                             onOpen(entry.path)
                                         }
                                     }
-                                    .padding(horizontal = OrchDimens.ItemGap, vertical = 11.dp)
+                                    .padding(horizontal = OrchDimens.ItemGap, vertical = 10.dp)
                             ) {
                                 Icon(
                                     imageVector = if (entry.isDir) Icons.Outlined.Folder else Icons.Outlined.InsertDriveFile,
                                     contentDescription = null,
-                                    tint = if (entry.isDir) OrchAccentCoral else OrchTextSecondary,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (entry.isDir) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = entry.name,
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = OrchTextPrimary,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
@@ -207,8 +222,8 @@ fun FilesSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.ChevronRight,
                                         contentDescription = null,
-                                        tint = OrchTextSecondary,
-                                        modifier = Modifier.size(18.dp)
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
@@ -231,43 +246,92 @@ fun ModelSheet(
 ) {
     val selectedModel = models.firstOrNull { it.id == selectedId }
     OrchBottomSheet(onDismiss = onDismiss) {
+        OrchSheetHeader(
+            title = "Select model",
+            onClose = onDismiss
+        )
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = OrchDimens.ScreenPadding)
         ) {
-            models.forEach { model ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+            if (models.isEmpty()) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            onSelectModel(model.id)
-                            if (!model.supportsThinking) onDismiss()
-                        }
-                        .padding(horizontal = OrchDimens.ScreenPadding, vertical = OrchDimens.CardPaddingV)
+                        .padding(vertical = 32.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = listOfNotNull(model.name, model.badge).joinToString(" · "),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = OrchTextPrimary
-                        )
-                        if (model.contextWindow > 0) {
-                            Text(
-                                text = "${formatContext(model.contextWindow)} context",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OrchTextSecondary
+                    OrchEmptyMessage(text = "No models available")
+                }
+            } else {
+                models.forEach { model ->
+                    val selected = model.id == selectedId
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .clickable {
+                                onSelectModel(model.id)
+                                if (!model.supportsThinking) onDismiss()
+                            }
+                            .padding(horizontal = OrchDimens.ScreenPadding, vertical = OrchDimens.CardPaddingV)
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = model.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                model.badge?.takeIf { it.isNotBlank() }?.let { badge ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                        shape = MaterialTheme.shapes.extraSmall,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                                    ) {
+                                        Text(
+                                            text = badge,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            if (model.contextWindow > 0) {
+                                Text(
+                                    text = "${formatContext(model.contextWindow)} context",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
-                    if (model.id == selectedId) {
-                        Icon(Icons.Rounded.Check, "Selected", tint = OrchAccentCoral)
-                    }
                 }
             }
-            if (selectedModel?.supportsThinking != false) {
-                HorizontalDivider(color = OrchBorder, modifier = Modifier.padding(vertical = OrchDimens.ItemGap))
+            if (selectedModel?.supportsThinking == true) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(vertical = OrchDimens.ItemGap)
+                )
                 Column(
                     verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
                     modifier = Modifier.padding(horizontal = OrchDimens.ScreenPadding, vertical = OrchDimens.ItemGap)
@@ -275,7 +339,7 @@ fun ModelSheet(
                     Text(
                         text = "Thinking effort",
                         style = MaterialTheme.typography.titleMedium,
-                        color = OrchTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap),
@@ -305,57 +369,74 @@ fun AccountSheet(
     onDismiss: () -> Unit
 ) {
     OrchBottomSheet(onDismiss = onDismiss) {
+        OrchSheetHeader(
+            title = "Account",
+            onClose = onDismiss
+        )
         Column(
             verticalArrangement = Arrangement.spacedBy(OrchDimens.SectionGap),
             modifier = Modifier
-                .padding(horizontal = OrchDimens.ScreenPadding)
-                .padding(bottom = OrchDimens.ScreenPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(OrchDimens.ScreenPadding)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OrchDimens.CardPaddingH)
             ) {
-                OrchIconBadge(size = 44.dp) {
+                OrchIconBadge(size = OrchDimens.AvatarLarge) {
                     Text(
                         text = (name ?: email ?: "?").take(1).uppercase(),
                         style = MaterialTheme.typography.titleLarge,
-                        color = OrchTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                Column {
-                    Text(name ?: "Signed in", style = MaterialTheme.typography.titleMedium, color = OrchTextPrimary)
-                    email?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = OrchTextSecondary) }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = name ?: "Signed in",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    email?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
-            HorizontalDivider(color = OrchBorder)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             if (budget != null) {
                 val ratio = if (budget.limitUsd > 0) (budget.costUsd / budget.limitUsd).toFloat().coerceIn(0f, 1f) else 0f
                 OrchCard {
                     Column(verticalArrangement = Arrangement.spacedBy(OrchDimens.ItemGap)) {
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
                                 text = "Monthly usage",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = OrchTextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
                                 text = "$%.2f / $%.2f".format(budget.costUsd, budget.limitUsd),
-                                style = MaterialTheme.typography.labelLarge.copy(fontFamily = JetBrainsMonoFontFamily),
-                                color = OrchTextSecondary
+                                style = OrchMonoLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         LinearProgressIndicator(
                             progress = { ratio },
-                            color = if (ratio > 0.9f) OrchAccentCoral else OrchTextPrimary,
-                            trackColor = OrchBackground,
+                            color = if (ratio > 0.9f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            trackColor = MaterialTheme.colorScheme.background,
                             modifier = Modifier.fillMaxWidth()
                         )
                         if (budget.resetsOn.isNotBlank()) {
                             Text(
                                 text = "Resets ${budget.resetsOn}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OrchTextSecondary
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -376,3 +457,4 @@ private fun formatContext(tokens: Long): String = when {
     tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
     else -> "${tokens / 1000}K"
 }
+

@@ -9,14 +9,17 @@ import androidx.compose.ui.unit.dp
 
 object OrchDimens {
     val ScreenPadding = 16.dp
-    val SectionGap = 14.dp
+    val SectionGap = 16.dp
     val ItemGap = 8.dp
     val TightGap = 4.dp
-    val CardPaddingH = 14.dp
-    val CardPaddingV = 12.dp
-    val ButtonHeight = 44.dp
+    val CardPaddingH = 16.dp
+    val CardPaddingV = 14.dp
+    val ButtonHeight = 48.dp
     val TouchTarget = 48.dp
-    val TopBarHeight = 56.dp
+    val TopBarHeight = 64.dp
+    val ComposerActionVisualSize = 38.dp
+    val AvatarSmall = 36.dp
+    val AvatarLarge = 44.dp
 }
 
 val OrchShapes = Shapes(
@@ -30,13 +33,13 @@ val OrchShapes = Shapes(
 private val OrchColorScheme = darkColorScheme(
     primary = OrchAccentCoral,
     onPrimary = OrchTextPrimary,
-    primaryContainer = OrchSurface,
+    primaryContainer = OrchSurfaceElevated,
     onPrimaryContainer = OrchTextPrimary,
     secondary = OrchAccentAmber,
     onSecondary = OrchBackground,
     secondaryContainer = OrchSurfaceElevated,
     onSecondaryContainer = OrchTextPrimary,
-    tertiary = OrchAccentAmber,
+    tertiary = OrchSuccess,
     onTertiary = OrchBackground,
     background = OrchBackground,
     onBackground = OrchTextPrimary,
@@ -51,7 +54,7 @@ private val OrchColorScheme = darkColorScheme(
     surfaceContainerHighest = OrchSurfaceElevated,
     outline = OrchBorder,
     outlineVariant = OrchBorder,
-    error = OrchAccentCoral,
+    error = OrchError,
     onError = OrchTextPrimary
 )
 
@@ -66,3 +69,4 @@ fun MyApplicationTheme(
         content = content
     )
 }
+

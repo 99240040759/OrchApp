@@ -12,10 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.OrchAlertDialog
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBorder
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
 
 @Composable
 fun UpdateDialog(
@@ -70,7 +66,7 @@ fun UpdateDialog(
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (state is UpdateState.Failed) OrchAccentCoral else OrchTextSecondary
+            color = if (state is UpdateState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
         when (state) {
             is UpdateState.Downloading -> {
@@ -78,15 +74,15 @@ fun UpdateDialog(
                 if (progress == null) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
-                        color = OrchTextPrimary,
-                        trackColor = OrchBorder
+                        color = MaterialTheme.colorScheme.onSurface,
+                        trackColor = MaterialTheme.colorScheme.outline
                     )
                 } else {
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
-                        color = OrchTextPrimary,
-                        trackColor = OrchBorder
+                        color = MaterialTheme.colorScheme.onSurface,
+                        trackColor = MaterialTheme.colorScheme.outline
                     )
                 }
             }
@@ -94,7 +90,7 @@ fun UpdateDialog(
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
                     strokeWidth = 2.dp,
-                    color = OrchTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             else -> Unit

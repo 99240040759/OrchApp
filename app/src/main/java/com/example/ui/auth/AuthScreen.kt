@@ -61,13 +61,7 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.example.BuildConfig
 import com.example.R
 import com.example.ui.components.OrchBanner
-import com.example.ui.theme.OrchAccentCoral
-import com.example.ui.theme.OrchBackground
-import com.example.ui.theme.OrchBorder
 import com.example.ui.theme.OrchDimens
-import com.example.ui.theme.OrchSurface
-import com.example.ui.theme.OrchTextPrimary
-import com.example.ui.theme.OrchTextSecondary
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -186,10 +180,10 @@ fun AuthScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OrchBackground)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 28.dp, vertical = 28.dp),
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -213,7 +207,7 @@ fun AuthScreen(
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineLarge,
-                color = OrchTextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center
             )
@@ -223,7 +217,7 @@ fun AuthScreen(
             Text(
                 text = "Sign in to continue to your cloud workspace.",
                 style = MaterialTheme.typography.bodyLarge,
-                color = OrchTextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
         }
@@ -261,21 +255,21 @@ fun AuthScreen(
                 enabled = !isLoading,
                 shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = OrchSurface,
-                    contentColor = OrchTextPrimary,
-                    disabledContainerColor = OrchBorder,
-                    disabledContentColor = OrchTextSecondary
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    disabledContainerColor = MaterialTheme.colorScheme.outline,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
-                    .border(1.dp, OrchBorder, MaterialTheme.shapes.medium)
+                    .height(OrchDimens.ButtonHeight)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)
                     .testTag("google_sign_in_button")
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = OrchAccentCoral,
+                        color = MaterialTheme.colorScheme.primary,
                         strokeWidth = 2.dp
                     )
                 } else {
@@ -292,7 +286,7 @@ fun AuthScreen(
                         Text(
                             text = stringResource(R.string.sign_in_with_google),
                             style = MaterialTheme.typography.titleMedium,
-                            color = OrchTextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -303,7 +297,7 @@ fun AuthScreen(
 
             val linkStyles = TextLinkStyles(
                 style = SpanStyle(
-                    color = OrchAccentCoral,
+                    color = MaterialTheme.colorScheme.primary,
                     textDecoration = TextDecoration.Underline,
                     fontWeight = FontWeight.Medium
                 )
@@ -333,7 +327,7 @@ fun AuthScreen(
             Text(
                 text = annotatedConsent,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    color = OrchTextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 ),
                 modifier = Modifier
